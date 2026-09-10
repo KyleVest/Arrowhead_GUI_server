@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Arrowhead Link — LoRa GPS</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --line:#2a3441;
+    --tx:#e6edf3; --dim:#8b98a5; --dim2:#5d6b7a;
+    --good:#3fb950; --ok:#58a6ff; --warn:#d29922; --bad:#f85149;
+    --rover:#f0883e; --base:#58a6ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-text-size-adjust:100%}
+  .mono{font-family:ui-monospace,SFMono-Regular,"Cascadia Mono",Consolas,monospace}
+  header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:10}
+  h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.2px;white-space:nowrap}
+  h1 span{color:var(--dim2);font-weight:400}
+  button{font:inherit;background:var(--panel2);color:var(--tx);border:1px solid var(--line);
+    border-radius:6px;padding:6px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  button:hover{border-color:#3d4b5c}
+  button.primary{background:#1f6feb;border-color:#1f6feb;color:#fff}
+  button:disabled{opacity:.4;cursor:default}
+  select{font:inherit;background:var(--panel2);color:var(--tx);border:1px solid var(--line);
+    border-radius:6px;padding:6px 8px}
+  label{color:var(--dim);font-size:12px}
+  .spacer{flex:1}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--bad);display:inline-block;
+    margin-right:6px;vertical-align:middle}
+  .dot.on{background:var(--good);box-shadow:0 0 8px var(--good)}
+  .dot.wait{background:var(--warn)}
+  #status{font-size:12px;color:var(--dim)}
+  main{padding:14px;display:flex;flex-direction:column;gap:14px;max-width:1180px;margin:0 auto}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .panel h2{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim2);
+    margin:0 0 12px;font-weight:600}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(142px,1fr));gap:12px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .tile .lab{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim2)}
+  .tile .val{font-size:30px;font-weight:650;line-height:1.15;margin-top:4px;
+    font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+  .tile .sub{font-size:11.5px;color:var(--dim);margin-top:2px;min-height:16px}
+  .good{color:var(--good)} .ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  .muted{color:var(--dim2)}
+
+  .maphead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .maphead h2{margin:0}
+  .maphead .sm{font-size:12px;padding:4px 9px}
+  #mapBox{position:relative;height:min(60vh,440px);border:1px solid var(--line);
+    border-radius:8px;overflow:hidden;background:#0b0e13;cursor:grab;touch-action:none}
+  #mapBox.drag{cursor:grabbing}
+  #map{display:block;width:100%;height:100%}
+  #mapOverlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:var(--dim2);font-size:13px;pointer-events:none;text-align:center;padding:20px}
+  .zoombtns{position:absolute;top:10px;right:10px;display:flex;flex-direction:column;gap:4px}
+  .zoombtns button{width:34px;height:34px;padding:0;font-size:18px;line-height:1;
+    background:rgba(22,27,34,.9)}
+  #recenter{position:absolute;bottom:10px;right:10px;background:rgba(22,27,34,.92);
+    font-size:12px;padding:6px 10px;display:none}
+  #attrib{position:absolute;bottom:0;left:0;font-size:9.5px;color:var(--dim2);
+    background:rgba(11,14,19,.72);padding:2px 6px;border-radius:0 4px 0 0;pointer-events:none}
+  .mlegend{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--dim);margin-top:12px;
+    align-items:center}
+  .mlegend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;
+    vertical-align:middle}
+  .mlegend i.sq{width:9px;height:9px;border-radius:2px}
+  .tstat{font-size:12px;color:var(--dim);font-family:ui-monospace,Consolas,monospace}
+
+  .sparks{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+  .spark .top{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;
+    color:var(--dim);margin-bottom:4px}
+  .spark .top b{font-size:13px;color:var(--tx);font-family:ui-monospace,Consolas,monospace}
+  .spark svg{width:100%;height:46px;display:block;background:var(--panel2);
+    border:1px solid var(--line);border-radius:6px}
+
+  table.kv{border-collapse:collapse;font-size:13px}
+  table.kv td{padding:2px 18px 2px 0;vertical-align:top}
+  table.kv td:first-child{color:var(--dim2);font-size:11.5px;text-transform:uppercase;
+    letter-spacing:.06em;padding-top:4px}
+  .row{display:flex;gap:28px;flex-wrap:wrap}
+
+  pre#log{margin:0;background:#0b0e13;border:1px solid var(--line);border-radius:8px;
+    padding:10px 12px;font-size:11.5px;line-height:1.5;color:#9fb3c8;overflow-x:auto;
+    max-height:300px;overflow-y:auto;white-space:pre}
+  details summary{cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:.09em;
+    color:var(--dim2);font-weight:600;list-style:none;user-select:none}
+  details summary::-webkit-details-marker{display:none}
+  details summary:before{content:"▸ ";}
+  details[open] summary:before{content:"▾ ";}
+  .note{font-size:12px;color:var(--dim);background:var(--panel2);border:1px solid var(--line);
+    border-left:3px solid var(--warn);border-radius:6px;padding:10px 12px}
+  code{font-family:ui-monospace,Consolas,monospace;background:var(--panel2);padding:1px 5px;
+    border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Arrowhead <span>· LoRa link</span></h1>
+  <button id="connect" class="primary">Connect</button>
+  <button id="reset">Reset stats</button>
+  <div class="spacer"></div>
+  <div id="status"><span class="dot" id="dot"></span><span id="statusText">Not connected</span></div>
+</header>
+
+<main>
+  <div id="unsupported" class="note" style="display:none">
+    <b>This browser has no Web Bluetooth.</b> On Android and desktop use Chrome or Edge.
+    On iPhone use <b>Bluefy</b> — Safari and iOS Chrome cannot do Bluetooth at all.
+    The page also has to be served over <code>https://</code> or <code>localhost</code>;
+    opening it from a file share will not work.
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="lab">Range</div>
+      <div class="val" id="tRange">—</div><div class="sub" id="tRangeSub">base position unknown</div></div>
+    <div class="tile"><div class="lab">Link RSSI</div>
+      <div class="val" id="tRssi">—</div><div class="sub" id="tRssiSub">dBm</div></div>
+    <div class="tile"><div class="lab">Link SNR</div>
+      <div class="val" id="tSnr">—</div><div class="sub" id="tSnrSub">dB</div></div>
+    <div class="tile"><div class="lab">Delivery</div>
+      <div class="val" id="tPdr">—</div><div class="sub" id="tPdrSub">packets received</div></div>
+    <div class="tile"><div class="lab">Rover fix</div>
+      <div class="val bad" id="tFix">—</div><div class="sub" id="tFixSub">no data</div></div>
+    <div class="tile"><div class="lab">Rover sats</div>
+      <div class="val" id="tSats">—</div><div class="sub" id="tSatsSub">HDOP —</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Link quality — last 60 packets</h2>
+    <div class="sparks">
+      <div class="spark"><div class="top"><span>RSSI <span class="muted">(dBm)</span></span><b id="sp1v">—</b></div>
+        <svg viewBox="0 0 300 46" preserveAspectRatio="none"><polyline id="sp1" fill="none"
+          stroke="var(--ok)" stroke-width="1.6" vector-effect="non-scaling-stroke" points=""/></svg></div>
+      <div class="spark"><div class="top"><span>SNR <span class="muted">(dB)</span></span><b id="sp2v">—</b></div>
+        <svg viewBox="0 0 300 46" preserveAspectRatio="none"><polyline id="sp2" fill="none"
+          stroke="var(--good)" stroke-width="1.6" vector-effect="non-scaling-stroke" points=""/></svg></div>
+      <div class="spark"><div class="top"><span>Range <span class="muted">(m)</span></span><b id="sp3v">—</b></div>
+        <svg viewBox="0 0 300 46" preserveAspectRatio="none"><polyline id="sp3" fill="none"
+          stroke="var(--rover)" stroke-width="1.6" vector-effect="non-scaling-stroke" points=""/></svg></div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <table class="kv"><tr><td>Received</td><td class="mono" id="sRx">—</td></tr>
+        <tr><td>Lost</td><td class="mono" id="sLost">—</td></tr></table>
+      <table class="kv"><tr><td>Best RSSI</td><td class="mono" id="sBest">—</td></tr>
+        <tr><td>Worst RSSI</td><td class="mono" id="sWorst">—</td></tr></table>
+      <table class="kv"><tr><td>Max range</td><td class="mono" id="sMaxR">—</td></tr>
+        <tr><td>Last heard</td><td class="mono" id="sAge">—</td></tr></table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="maphead">
+      <h2>Track</h2>
+      <select id="basemap" class="sm">
+        <option value="sat">Satellite</option>
+        <option value="topo">Topo</option>
+        <option value="street">Streets</option>
+        <option value="none">No tiles (grid)</option>
+      </select>
+      <select id="colorBy" class="sm">
+        <option value="rssi">Color: RSSI</option>
+        <option value="hdop">Color: HDOP</option>
+      </select>
+      <button class="sm" id="followBtn">Follow: on</button>
+      <button class="sm" id="fitBtn">Fit track</button>
+      <div class="spacer"></div>
+      <button class="sm" id="impBtn">Import…</button>
+      <button class="sm" id="expGpx">Export GPX</button>
+      <button class="sm" id="expCsv">Export CSV</button>
+      <button class="sm" id="clearTrack">Clear</button>
+      <input type="file" id="impFile" accept=".gpx,.csv,.txt" style="display:none">
+    </div>
+    <div id="mapBox">
+      <canvas id="map"></canvas>
+      <div id="mapOverlay">Waiting for a rover fix…</div>
+      <div class="zoombtns"><button id="zin">+</button><button id="zout">−</button></div>
+      <button id="recenter">Re-center</button>
+      <div id="attrib"></div>
+    </div>
+    <div class="mlegend" id="legendRssi">
+      <span id="lg0"><i style="background:var(--good)"></i>RSSI ≥ −100 dBm</span>
+      <span id="lg1"><i style="background:var(--ok)"></i>−100 to −115</span>
+      <span id="lg2"><i style="background:var(--warn)"></i>below −115</span>
+      <span><i class="sq" style="background:var(--base)"></i>you (base)</span>
+      <div class="spacer"></div>
+      <span class="tstat" id="trackStat">0 points</span>
+    </div>
+    <div class="mlegend"><span class="muted">Drag to pan, pinch or scroll to zoom. Tiles need a
+      data connection — with none, the map falls back to a distance grid and the track still
+      records normally. Points are saved in this browser as they arrive, and Export GPX/CSV
+      writes a file you can keep.</span></div>
+  </div>
+
+  <div class="panel">
+    <h2>Rover &amp; link detail</h2>
+    <div class="row">
+      <table class="kv">
+        <tr><td>Latitude</td><td class="mono" id="pLat">—</td></tr>
+        <tr><td>Longitude</td><td class="mono" id="pLon">—</td></tr>
+        <tr><td>Altitude</td><td class="mono" id="pAlt">—</td></tr>
+      </table>
+      <table class="kv">
+        <tr><td>UTC</td><td class="mono" id="pTime">—</td></tr>
+        <tr><td>Speed</td><td class="mono" id="pSpd">—</td></tr>
+        <tr><td>Course</td><td class="mono" id="pCrs">—</td></tr>
+      </table>
+      <table class="kv">
+        <tr><td>Base (you)</td><td class="mono" id="pBase">—</td></tr>
+        <tr><td>Base accuracy</td><td class="mono" id="pBaseAcc">—</td></tr>
+        <tr><td>Bearing to rover</td><td class="mono" id="pBrg">—</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <details>
+      <summary>Packet log — newest first</summary>
+      <div style="margin:10px 0 8px"><label><input type="checkbox" id="freeze"> freeze</label></div>
+      <pre id="log">—</pre>
+    </details>
+  </div>
+</main>
+
+<script>
+(function(){
+  'use strict';
+  var $ = function(id){ return document.getElementById(id); };
+
+  /* ================= BLE constants — must match arrowhead_lora_rx.ino ============= */
+  var SVC_UUID  = '4152c0de-9b31-4a7d-8f52-1c6ea9d40100';
+  var CHR_DATA  = '4152c0de-9b31-4a7d-8f52-1c6ea9d40101';
+  var CHR_CMD   = '4152c0de-9b31-4a7d-8f52-1c6ea9d40102';
+  var REC_LEN   = 33;      // 29-byte v2 packet + int16 rssi + int16 snr
+  var PKT_MAGIC = 0xA7;
+  var PKT_VER   = 2;
+
+  /* ================= state ================= */
+  var device = null, gatt = null, chrCmd = null, wantConnected = false;
+  var track = [], seen = Object.create(null), trackDist = 0;
+  var lastPkt = null, lastRxMs = 0;
+  var base = null;                       // {lat, lon, acc} from the phone's own GPS
+  var stats = null;
+  var hist = { rssi: [], snr: [], range: [] };
+  var logLines = [];
+  var needDraw = true;
+  var wakeLock = null;
+
+  function resetStats(){
+    stats = { rx: 0, lost: 0, best: null, worst: null, maxRange: 0, firstSeq: null, lastSeq: null };
+    hist = { rssi: [], snr: [], range: [] };
+  }
+
+  /* ================= geometry ================= */
+  function haversine(a, b){
+    var R = 6371000, t = Math.PI/180;
+    var dLat = (b.lat-a.lat)*t, dLon = (b.lon-a.lon)*t;
+    var h = Math.sin(dLat/2)*Math.sin(dLat/2) +
+            Math.cos(a.lat*t)*Math.cos(b.lat*t)*Math.sin(dLon/2)*Math.sin(dLon/2);
+    return 2*R*Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+  function bearing(a, b){
+    var t = Math.PI/180;
+    var y = Math.sin((b.lon-a.lon)*t) * Math.cos(b.lat*t);
+    var x = Math.cos(a.lat*t)*Math.sin(b.lat*t) -
+            Math.sin(a.lat*t)*Math.cos(b.lat*t)*Math.cos((b.lon-a.lon)*t);
+    return (Math.atan2(y, x)/t + 360) % 360;
+  }
+  function fmtDist(m){
+    if (m === null || m === undefined) return '—';
+    return m < 1000 ? m.toFixed(0) + ' m' : (m/1000).toFixed(2) + ' km';
+  }
+  function fmtDistLong(m){
+    if (m === null) return '—';
+    return m < 1000 ? m.toFixed(0) + ' m / ' + (m*3.28084).toFixed(0) + ' ft'
+                    : (m/1000).toFixed(2) + ' km / ' + (m/1609.34).toFixed(2) + ' mi';
+  }
+
+  /* ================= record parsing ================= */
+  // Offsets mirror the packed structs in both sketches. Everything is little-endian.
+  function parseRecord(dv){
+    if (dv.byteLength < REC_LEN) return null;
+    if (dv.getUint8(0) !== PKT_MAGIC) return null;
+    var ver = dv.getUint8(1);
+    if (ver !== PKT_VER) return { verMismatch: ver };
+    return {
+      nodeId: dv.getUint8(2),
+      seq:    dv.getUint16(3, true),
+      epoch:  dv.getUint32(5, true),
+      lat:    dv.getInt32(9,  true) / 1e7,
+      lon:    dv.getInt32(13, true) / 1e7,
+      alt:    dv.getInt32(17, true) / 100,
+      hdop:   dv.getUint16(21, true) / 100,
+      speed:  dv.getUint16(23, true) / 100,
+      course: dv.getUint16(25, true) / 10,
+      sats:   dv.getUint8(27),
+      valid:  dv.getUint8(28) === 1,
+      rssi:   dv.getInt16(29, true),
+      snr:    dv.getInt16(31, true) / 10
+    };
+  }
+
+  function onRecord(dv){
+    var r = parseRecord(dv);
+    if (!r) return;
+    if (r.verMismatch !== undefined){
+      setStatus('Board sends packet v' + r.verMismatch + ', page expects v' + PKT_VER, false);
+      return;
+    }
+    if (seen[r.seq]) return;               // replayed duplicate after a reconnect
+    seen[r.seq] = true;
+
+    lastPkt = r; lastRxMs = Date.now();
+
+    stats.rx++;
+    if (stats.firstSeq === null) stats.firstSeq = r.seq;
+    if (stats.lastSeq !== null){
+      var gap = ((r.seq - stats.lastSeq) & 0xFFFF) - 1;
+      if (gap > 0 && gap < 1000) stats.lost += gap;
+    }
+    stats.lastSeq = r.seq;
+    if (stats.best  === null || r.rssi > stats.best)  stats.best  = r.rssi;
+    if (stats.worst === null || r.rssi < stats.worst) stats.worst = r.rssi;
+
+    var range = null;
+    if (r.valid && base) range = haversine(base, r);
+    if (range !== null && range > stats.maxRange) stats.maxRange = range;
+
+    push(hist.rssi, r.rssi);
+    push(hist.snr,  r.snr);
+    push(hist.range, range);
+
+    if (r.valid){
+      var p = { iso: r.epoch ? new Date(r.epoch*1000).toISOString().replace('.000','') : null,
+                lat: r.lat, lon: r.lon, alt: r.alt, dim: 3, sats: r.sats, hdop: r.hdop,
+                seq: r.seq, rssi: r.rssi, lsnr: r.snr, range: range };
+      if (track.length) trackDist += haversine(track[track.length-1], p);
+      track.push(p);
+      needDraw = true;
+      saveSoon();
+    }
+
+    logLines.unshift('#' + String(r.seq).padStart(5) + '  ' +
+      (r.valid ? r.lat.toFixed(6) + ',' + r.lon.toFixed(6) : 'no fix'.padEnd(20)) +
+      '  RSSI ' + String(r.rssi).padStart(5) + '  SNR ' + r.snr.toFixed(1).padStart(5) +
+      '  sats ' + String(r.sats).padStart(2) +
+      (range !== null ? '  ' + fmtDist(range) : ''));
+    if (logLines.length > 300) logLines.pop();
+  }
+  function push(a, v){ a.push(v); if (a.length > 60) a.shift(); }
+
+  /* ================= BLE ================= */
+  function setStatus(txt, state){
+    $('statusText').textContent = txt;
+    $('dot').className = 'dot' + (state === true ? ' on' : state === 'wait' ? ' wait' : '');
+  }
+
+  async function connect(){
+    try {
+      setStatus('Requesting device…', 'wait');
+      device = await navigator.bluetooth.requestDevice({ filters: [{ services: [SVC_UUID] }] });
+      device.addEventListener('gattserverdisconnected', onDisconnected);
+      await openGatt();
+    } catch (e){
+      if (e && e.name === 'NotFoundError'){ setStatus('Not connected', false); return; }
+      setStatus('Connect failed: ' + (e && e.message ? e.message : e), false);
+    }
+  }
+
+  async function openGatt(){
+    setStatus('Connecting…', 'wait');
+    gatt = await device.gatt.connect();
+    var svc  = await gatt.getPrimaryService(SVC_UUID);
+    var data = await svc.getCharacteristic(CHR_DATA);
+    chrCmd   = await svc.getCharacteristic(CHR_CMD);
+
+    data.addEventListener('characteristicvaluechanged', function(ev){ onRecord(ev.target.value); });
+    await data.startNotifications();
+
+    // Tell the board where we left off so it replays only the gap. 0xFFFF = send everything.
+    var resume = stats && stats.lastSeq !== null ? stats.lastSeq : 0xFFFF;
+    var cmd = new Uint8Array(2);
+    cmd[0] = resume & 0xFF; cmd[1] = (resume >> 8) & 0xFF;
+    await chrCmd.writeValue(cmd);
+
+    wantConnected = true;
+    $('connect').textContent = 'Disconnect';
+    $('connect').classList.remove('primary');
+    setStatus('Connected to ' + (device.name || 'Arrowhead-RX'), true);
+    requestWakeLock();
+  }
+
+  function onDisconnected(){
+    setStatus(wantConnected ? 'Link dropped — reconnecting…' : 'Not connected', 'wait');
+    gatt = null; chrCmd = null;
+    if (!wantConnected){
+      $('connect').textContent = 'Connect';
+      $('connect').classList.add('primary');
+      setStatus('Not connected', false);
+      return;
+    }
+    setTimeout(function retry(){
+      if (!wantConnected || !device) return;
+      openGatt().catch(function(){ setTimeout(retry, 3000); });
+    }, 1500);
+  }
+
+  async function disconnect(){
+    wantConnected = false;
+    try { if (device && device.gatt.connected) device.gatt.disconnect(); } catch (e){}
+    gatt = null; chrCmd = null;
+    $('connect').textContent = 'Connect';
+    $('connect').classList.add('primary');
+    setStatus('Not connected', false);
+    releaseWakeLock();
+  }
+
+  /* ================= wake lock =================
+     Field use: a locked screen suspends the page and drops the BLE link. */
+  async function requestWakeLock(){
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }
+    catch (e){}
+  }
+  function releaseWakeLock(){ try { if (wakeLock) wakeLock.release(); } catch (e){} wakeLock = null; }
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible' && wantConnected) requestWakeLock();
+  });
+
+  /* ================= base position (the phone) ================= */
+  if (navigator.geolocation){
+    navigator.geolocation.watchPosition(function(pos){
+      base = { lat: pos.coords.latitude, lon: pos.coords.longitude, acc: pos.coords.accuracy };
+      needDraw = true;
+    }, function(){
+      $('tRangeSub').textContent = 'location permission denied';
+    }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+  }
+
+  /* ================= persistence ================= */
+  var saveTimer = null;
+  function saveSoon(){
+    if (saveTimer) return;
+    saveTimer = setTimeout(function(){
+      saveTimer = null;
+      try { localStorage.setItem('arrowhead.track', JSON.stringify(track)); } catch (e){}
+    }, 3000);
+  }
+  function restore(){
+    try {
+      var raw = localStorage.getItem('arrowhead.track');
+      if (!raw) return;
+      var pts = JSON.parse(raw);
+      if (pts && pts.length){
+        setTrack(pts);
+        pts.forEach(function(p){ if (p.seq !== undefined) seen[p.seq] = true; });
+        var last = pts[pts.length-1];
+        if (last && last.seq !== undefined) stats.lastSeq = last.seq;
+        setStatus('Restored ' + pts.length + ' saved points', false);
+      }
+    } catch (e){}
+  }
+
+  /* ================= render ================= */
+  function clsHi(v, th){ if (v === null || v === undefined) return 'muted';
+    return v >= th[2] ? 'good' : v >= th[1] ? 'ok' : v >= th[0] ? 'warn' : 'bad'; }
+
+  function render(){
+    var r = lastPkt;
+    var age = r ? (Date.now() - lastRxMs)/1000 : null;
+    var range = (r && r.valid && base) ? haversine(base, r) : null;
+
+    $('tRange').textContent = range === null ? '—' :
+      (range < 1000 ? range.toFixed(0) : (range/1000).toFixed(2));
+    $('tRange').className = 'val ' + (range === null ? 'muted' : 'ok');
+    $('tRangeSub').textContent = range === null
+      ? (base ? 'waiting for rover fix' : 'base position unknown')
+      : (range < 1000 ? 'metres · ' + (range*3.28084).toFixed(0) + ' ft'
+                      : 'km · ' + (range/1609.34).toFixed(2) + ' mi');
+
+    $('tRssi').textContent = r ? r.rssi : '—';
+    $('tRssi').className = 'val ' + clsHi(r ? r.rssi : null, [-125, -115, -100]);
+    $('tRssiSub').textContent = !r ? 'dBm'
+      : r.rssi >= -100 ? 'dBm · strong' : r.rssi >= -115 ? 'dBm · workable' : 'dBm · marginal';
+
+    $('tSnr').textContent = r ? r.snr.toFixed(1) : '—';
+    $('tSnr').className = 'val ' + clsHi(r ? r.snr : null, [-15, -7, 0]);
+    $('tSnrSub').textContent = !r ? 'dB'
+      : r.snr >= 0 ? 'dB · clear of noise' : 'dB · below noise floor (normal for LoRa)';
+
+    var tot = stats.rx + stats.lost;
+    var pdr = tot ? 100*stats.rx/tot : null;
+    $('tPdr').textContent = pdr === null ? '—' : pdr.toFixed(0) + '%';
+    $('tPdr').className = 'val ' + clsHi(pdr, [70, 90, 98]);
+    $('tPdrSub').textContent = tot ? stats.rx + ' of ' + tot + ' expected' : 'packets received';
+
+    $('tFix').textContent = !r ? '—' : r.valid ? 'FIX' : 'NO FIX';
+    $('tFix').className = 'val ' + (!r ? 'muted' : r.valid ? 'good' : 'bad');
+    $('tFixSub').textContent = !r ? 'no data'
+      : age > 30 ? 'stale — ' + age.toFixed(0) + ' s since last packet' : 'rover reporting';
+
+    $('tSats').textContent = r ? r.sats : '—';
+    $('tSats').className = 'val ' + clsHi(r ? r.sats : null, [4, 6, 9]);
+    $('tSatsSub').textContent = r && r.hdop ? 'HDOP ' + r.hdop.toFixed(2) : 'HDOP —';
+
+    $('sRx').textContent   = stats.rx;
+    $('sLost').textContent = stats.lost;
+    $('sBest').textContent  = stats.best  === null ? '—' : stats.best + ' dBm';
+    $('sWorst').textContent = stats.worst === null ? '—' : stats.worst + ' dBm';
+    $('sMaxR').textContent  = stats.maxRange ? fmtDistLong(stats.maxRange) : '—';
+    $('sAge').textContent   = age === null ? '—' : age.toFixed(0) + ' s ago';
+
+    if (r){
+      $('pLat').textContent = r.valid ? r.lat.toFixed(6) + '°' : '—';
+      $('pLon').textContent = r.valid ? r.lon.toFixed(6) + '°' : '—';
+      $('pAlt').textContent = r.valid ? r.alt.toFixed(1) + ' m' : '—';
+      $('pTime').textContent = r.epoch ? new Date(r.epoch*1000).toISOString().slice(11,19) : '—';
+      $('pSpd').textContent = r.valid ? (r.speed*2.23694).toFixed(1) + ' mph' : '—';
+      $('pCrs').textContent = r.valid ? r.course.toFixed(0) + '°' : '—';
+      $('pBrg').textContent = (r.valid && base) ? bearing(base, r).toFixed(0) + '°' : '—';
+    }
+    $('pBase').textContent = base ? base.lat.toFixed(6) + ', ' + base.lon.toFixed(6) : '—';
+    $('pBaseAcc').textContent = base ? '±' + base.acc.toFixed(0) + ' m' : '—';
+
+    spark('sp1','sp1v', hist.rssi,  -135, -40, 0, ' dBm');
+    spark('sp2','sp2v', hist.snr,    -20,  12, 1, ' dB');
+    spark('sp3','sp3v', hist.range,    0, Math.max(100, stats.maxRange||100), 0, ' m');
+
+    $('trackStat').textContent = track.length + ' point' + (track.length === 1 ? '' : 's') +
+      (track.length > 1 ? ' · ' + fmtDistLong(trackDist) + ' travelled' : '');
+
+    if (!$('freeze').checked)
+      $('log').textContent = logLines.length ? logLines.join('\n') : '—';
+  }
+
+  function spark(id, valId, arr, lo, hi, dec, unit){
+    var pts = [], last = null;
+    for (var i = 0; i < arr.length; i++){
+      var v = arr[i];
+      if (v === null || v === undefined) continue;
+      last = v;
+      var c = Math.max(lo, Math.min(hi, v));
+      pts.push(((i/59)*300).toFixed(1) + ',' + (44 - ((c-lo)/(hi-lo))*42).toFixed(1));
+    }
+    if (pts.length === 1) pts.push('300,' + pts[0].split(',')[1]);
+    $(id).setAttribute('points', pts.join(' '));
+    $(valId).textContent = last === null ? '—' : last.toFixed(dec) + unit;
+  }
+
+  /* ================= map ================= */
+  var TILES = {
+    sat:   { max: 19, attr: 'Imagery © Esri, Maxar, Earthstar Geographics',
+             url: function(z,x,y){ return 'https://server.arcgisonline.com/ArcGIS/rest/services/' +
+               'World_Imagery/MapServer/tile/' + z + '/' + y + '/' + x; } },
+    topo:  { max: 19, attr: '© Esri, USGS, NOAA',
+             url: function(z,x,y){ return 'https://server.arcgisonline.com/ArcGIS/rest/services/' +
+               'World_Topo_Map/MapServer/tile/' + z + '/' + y + '/' + x; } },
+    street:{ max: 19, attr: '© OpenStreetMap contributors',
+             url: function(z,x,y){ return 'https://tile.openstreetmap.org/' +
+               z + '/' + x + '/' + y + '.png'; } }
+  };
+  var M = { lat: null, lon: null, zoom: 16, follow: true, basemap: 'sat', colorBy: 'rssi' };
+  var tileCache = {}, tileOk = 0, tileErr = 0;
+  var cv = $('map'), box = $('mapBox');
+  var QC = ['#3fb950', '#58a6ff', '#d29922'];
+
+  function qi(p){
+    if (M.colorBy === 'rssi'){
+      if (p.rssi === undefined || p.rssi === null) return 1;
+      return p.rssi >= -100 ? 0 : p.rssi >= -115 ? 1 : 2;
+    }
+    if (p.hdop === null || p.hdop === undefined) return 1;
+    return p.hdop <= 2 ? 0 : p.hdop <= 5 ? 1 : 2;
+  }
+
+  function lon2wx(lon,z){ return (lon+180)/360*256*Math.pow(2,z); }
+  function lat2wy(lat,z){ var s=Math.sin(lat*Math.PI/180);
+    return (0.5 - Math.log((1+s)/(1-s))/(4*Math.PI))*256*Math.pow(2,z); }
+  function wx2lon(x,z){ return x/(256*Math.pow(2,z))*360-180; }
+  function wy2lat(y,z){ var n=Math.PI-2*Math.PI*y/(256*Math.pow(2,z));
+    return 180/Math.PI*Math.atan(0.5*(Math.exp(n)-Math.exp(-n))); }
+  function tilesDown(){ return tileErr >= 8 && tileOk === 0; }
+
+  function getTile(key,url){
+    var img = tileCache[key];
+    if (img) return img;
+    img = new Image();
+    img.onload  = function(){ tileOk++;  needDraw = true; };
+    img.onerror = function(){ tileErr++; needDraw = true; };
+    img.src = url;
+    tileCache[key] = img;
+    var keys = Object.keys(tileCache);
+    if (keys.length > 700) for (var i = 0; i < 300; i++) delete tileCache[keys[i]];
+    return img;
+  }
+
+  function drawMap(){
+    var cw = box.clientWidth, ch = box.clientHeight;
+    if (!cw || !ch) return;
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (cv.width !== Math.round(cw*dpr) || cv.height !== Math.round(ch*dpr)){
+      cv.width = Math.round(cw*dpr); cv.height = Math.round(ch*dpr);
+    }
+    var ctx = cv.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,cw,ch);
+
+    if (M.follow && track.length){
+      M.lat = track[track.length-1].lat; M.lon = track[track.length-1].lon;
+    } else if (M.follow && !track.length && base){
+      M.lat = base.lat; M.lon = base.lon;
+    }
+    var haveCenter = M.lat !== null;
+    $('mapOverlay').style.display = haveCenter ? 'none' : 'flex';
+    if (!haveCenter){ $('attrib').textContent = ''; return; }
+
+    var z = M.zoom;
+    var ox = lon2wx(M.lon,z) - cw/2, oy = lat2wy(M.lat,z) - ch/2;
+    var src = TILES[M.basemap];
+    var useTiles = !!src && !tilesDown();
+
+    if (useTiles){
+      var n = Math.pow(2,z);
+      for (var tx = Math.floor(ox/256); tx <= Math.floor((ox+cw)/256); tx++){
+        for (var ty = Math.floor(oy/256); ty <= Math.floor((oy+ch)/256); ty++){
+          if (ty < 0 || ty >= n) continue;
+          var wx = ((tx % n) + n) % n;
+          var img = getTile(M.basemap+'/'+z+'/'+wx+'/'+ty, src.url(z,wx,ty));
+          if (img.complete && img.naturalWidth)
+            ctx.drawImage(img, Math.round(tx*256-ox), Math.round(ty*256-oy), 256, 256);
+        }
+      }
+    } else {
+      drawGrid(ctx, cw, ch, z);
+    }
+
+    drawTrack(ctx, z, ox, oy);
+    drawBase(ctx, z, ox, oy);
+    drawScale(ctx, cw, ch, z);
+    $('attrib').textContent = useTiles ? src.attr
+      : (M.basemap === 'none' ? '' : 'offline — tiles unavailable, showing distance grid');
+  }
+
+  function drawGrid(ctx, cw, ch, z){
+    var mpp = 156543.03392*Math.cos(M.lat*Math.PI/180)/Math.pow(2,z);
+    var steps = [1,2,5,10,20,50,100,200,500,1000,2000,5000], step = steps[steps.length-1];
+    for (var i = 0; i < steps.length; i++){ if (steps[i]/mpp >= 60){ step = steps[i]; break; } }
+    var sp = step/mpp, cx = cw/2, cy = ch/2;
+    ctx.lineWidth = 1; ctx.font = '9px ui-monospace,Consolas,monospace';
+    for (var k = -Math.ceil(cx/sp); cx + k*sp <= cw; k++){
+      var x = cx + k*sp;
+      ctx.strokeStyle = k === 0 ? '#33404f' : '#1c242e';
+      ctx.beginPath(); ctx.moveTo(x+0.5,0); ctx.lineTo(x+0.5,ch); ctx.stroke();
+      if (k !== 0){ ctx.fillStyle = '#4a5866'; ctx.fillText(fmtM(k*step), x+3, ch-4); }
+    }
+    for (var j = -Math.ceil(cy/sp); cy + j*sp <= ch; j++){
+      var y = cy + j*sp;
+      ctx.strokeStyle = j === 0 ? '#33404f' : '#1c242e';
+      ctx.beginPath(); ctx.moveTo(0,y+0.5); ctx.lineTo(cw,y+0.5); ctx.stroke();
+      if (j !== 0){ ctx.fillStyle = '#4a5866'; ctx.fillText(fmtM(-j*step), 4, y-3); }
+    }
+  }
+  function fmtM(m){ return Math.abs(m) >= 1000 ? (m/1000)+' km' : m+' m'; }
+
+  function drawTrack(ctx, z, ox, oy){
+    if (!track.length) return;
+    var pts = [], i;
+    for (i = 0; i < track.length; i++)
+      pts.push({ x: lon2wx(track[i].lon,z)-ox, y: lat2wy(track[i].lat,z)-oy, q: qi(track[i]) });
+
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    if (pts.length > 1){
+      ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 5.5;
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+      for (i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke();
+      ctx.lineWidth = 2.5;
+      for (var q = 0; q < 3; q++){
+        ctx.beginPath(); var any = false;
+        for (i = 1; i < pts.length; i++){
+          if (pts[i].q !== q) continue;
+          ctx.moveTo(pts[i-1].x, pts[i-1].y); ctx.lineTo(pts[i].x, pts[i].y); any = true;
+        }
+        if (any){ ctx.strokeStyle = QC[q]; ctx.stroke(); }
+      }
+    }
+    if (pts.length <= 3000){
+      for (i = 0; i < pts.length; i++){
+        ctx.beginPath(); ctx.arc(pts[i].x, pts[i].y, 1.9, 0, 6.284);
+        ctx.fillStyle = QC[pts[i].q]; ctx.fill();
+      }
+    }
+    var a = pts[0], b = pts[pts.length-1];
+    ctx.lineWidth = 2; ctx.strokeStyle = '#fff';
+    ctx.beginPath(); ctx.arc(a.x, a.y, 5, 0, 6.284); ctx.stroke();
+    ctx.beginPath(); ctx.arc(b.x, b.y, 6, 0, 6.284);
+    ctx.fillStyle = QC[b.q]; ctx.fill(); ctx.stroke();
+  }
+
+  // Base marker plus a dashed line to the rover — the range you are testing, drawn.
+  function drawBase(ctx, z, ox, oy){
+    if (!base) return;
+    var bx = lon2wx(base.lon,z)-ox, by = lat2wy(base.lat,z)-oy;
+
+    if (track.length){
+      var last = track[track.length-1];
+      var lx = lon2wx(last.lon,z)-ox, ly = lat2wy(last.lat,z)-oy;
+      ctx.save();
+      ctx.setLineDash([6,5]); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(88,166,255,.75)';
+      ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(lx,ly); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.beginPath(); ctx.arc(bx, by, 6, 0, 6.284);
+    ctx.fillStyle = '#58a6ff'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
+  }
+
+  function drawScale(ctx, cw, ch, z){
+    var mpp = 156543.03392*Math.cos(M.lat*Math.PI/180)/Math.pow(2,z);
+    var steps = [5,10,20,50,100,200,500,1000,2000,5000], step = steps[0];
+    for (var i = 0; i < steps.length; i++){ step = steps[i]; if (step/mpp >= 70) break; }
+    var w = step/mpp, x = 12, y = ch - 38;
+    ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+w,y); ctx.stroke();
+    ctx.strokeStyle = '#e6edf3'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x,y-3); ctx.lineTo(x,y+3);
+    ctx.moveTo(x,y); ctx.lineTo(x+w,y);
+    ctx.moveTo(x+w,y-3); ctx.lineTo(x+w,y+3); ctx.stroke();
+    ctx.font = '10px ui-monospace,Consolas,monospace';
+    var label = fmtM(step) + '  /  ' + Math.round(step*3.28084) + ' ft';
+    ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillText(label, x+1, y-7);
+    ctx.fillStyle = '#e6edf3'; ctx.fillText(label, x, y-8);
+  }
+
+  /* ================= map interaction (mouse + touch) ================= */
+  var drag = null, pinch = null;
+  function pt(e){ return { x: e.clientX, y: e.clientY }; }
+
+  var activePointers = 0;
+  box.addEventListener('pointerdown', function(e){
+    activePointers++;
+    if (activePointers > 1){ drag = null; box.classList.remove('drag'); return; }  // pinching
+    box.setPointerCapture(e.pointerId);
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, lat: M.lat, lon: M.lon };
+    box.classList.add('drag');
+  });
+  box.addEventListener('pointermove', function(e){
+    if (!drag || drag.id !== e.pointerId || M.lat === null) return;
+    setFollow(false);
+    var z = M.zoom;
+    M.lon = wx2lon(lon2wx(drag.lon,z) - (e.clientX-drag.x), z);
+    M.lat = wy2lat(lat2wy(drag.lat,z) - (e.clientY-drag.y), z);
+    needDraw = true;
+  });
+  function endDrag(e){
+    activePointers = Math.max(0, activePointers - 1);
+    if (drag && drag.id === e.pointerId){ drag = null; box.classList.remove('drag'); }
+  }
+  box.addEventListener('pointerup', endDrag);
+  box.addEventListener('pointercancel', endDrag);
+
+  box.addEventListener('wheel', function(e){
+    if (M.lat === null) return;
+    e.preventDefault();
+    zoomBy(e.deltaY < 0 ? 1 : -1, e.clientX, e.clientY);
+  }, { passive: false });
+
+  // Pinch: two touches -> zoom step when the span crosses a threshold. Coarse but adequate.
+  box.addEventListener('touchstart', function(e){
+    if (e.touches.length === 2) pinch = span(e);
+  }, { passive: true });
+  box.addEventListener('touchmove', function(e){
+    if (e.touches.length !== 2 || !pinch) return;
+    var s = span(e);
+    if (s / pinch > 1.4){ zoomBy(1); pinch = s; }
+    else if (s / pinch < 0.72){ zoomBy(-1); pinch = s; }
+  }, { passive: true });
+  box.addEventListener('touchend', function(){ pinch = null; });
+  function span(e){
+    var dx = e.touches[0].clientX - e.touches[1].clientX;
+    var dy = e.touches[0].clientY - e.touches[1].clientY;
+    return Math.max(1, Math.hypot(dx, dy));
+  }
+
+  function zoomBy(dir, cxp, cyp){
+    var max = (TILES[M.basemap] || {max:20}).max || 20;
+    var nz = Math.max(2, Math.min(max, M.zoom + dir));
+    if (nz === M.zoom) return;
+    if (!M.follow && cxp !== undefined){
+      var r = box.getBoundingClientRect();
+      var mx = cxp - r.left - r.width/2, my = cyp - r.top - r.height/2;
+      var lon0 = wx2lon(lon2wx(M.lon,M.zoom)+mx, M.zoom);
+      var lat0 = wy2lat(lat2wy(M.lat,M.zoom)+my, M.zoom);
+      M.zoom = nz;
+      M.lon = wx2lon(lon2wx(lon0,nz)-mx, nz);
+      M.lat = wy2lat(lat2wy(lat0,nz)-my, nz);
+    } else { M.zoom = nz; }
+    needDraw = true;
+  }
+
+  function setFollow(on){
+    M.follow = on;
+    $('followBtn').textContent = 'Follow: ' + (on ? 'on' : 'off');
+    $('recenter').style.display = on ? 'none' : 'block';
+    needDraw = true;
+  }
+  function fitTrack(){
+    var pts = track.slice();
+    if (base) pts.push(base);                 // keep base and rover both in view
+    if (!pts.length) return;
+    var m = { la0: 90, la1: -90, lo0: 180, lo1: -180 };
+    pts.forEach(function(p){
+      if (p.lat < m.la0) m.la0 = p.lat;  if (p.lat > m.la1) m.la1 = p.lat;
+      if (p.lon < m.lo0) m.lo0 = p.lon;  if (p.lon > m.lo1) m.lo1 = p.lon;
+    });
+    M.lat = (m.la0+m.la1)/2; M.lon = (m.lo0+m.lo1)/2;
+    var cw = Math.max(80, box.clientWidth-60), ch = Math.max(80, box.clientHeight-60);
+    var max = (TILES[M.basemap] || {max:20}).max || 20, z;
+    for (z = max; z > 2; z--){
+      if (Math.abs(lon2wx(m.lo1,z)-lon2wx(m.lo0,z)) <= cw &&
+          Math.abs(lat2wy(m.la0,z)-lat2wy(m.la1,z)) <= ch) break;
+    }
+    M.zoom = z;
+    setFollow(false);
+  }
+
+  function setTrack(pts){
+    track = pts; trackDist = 0;
+    for (var i = 1; i < track.length; i++) trackDist += haversine(track[i-1], track[i]);
+    needDraw = true;
+    if (track.length) fitTrack();
+  }
+
+  $('fitBtn').addEventListener('click', fitTrack);
+  $('followBtn').addEventListener('click', function(){ setFollow(!M.follow); });
+  $('recenter').addEventListener('click', function(){ setFollow(true); });
+  $('zin').addEventListener('click', function(){ zoomBy(1); });
+  $('zout').addEventListener('click', function(){ zoomBy(-1); });
+  $('basemap').addEventListener('change', function(){
+    M.basemap = this.value; tileErr = 0; needDraw = true; });
+  var LEGEND = {
+    rssi: ['RSSI ≥ −100 dBm', '−100 to −115', 'below −115'],
+    hdop: ['HDOP ≤ 2', 'HDOP 2–5', 'HDOP > 5']
+  };
+  function paintLegend(){
+    var t = LEGEND[M.colorBy], c = ['--good','--ok','--warn'];
+    for (var i = 0; i < 3; i++)
+      $('lg'+i).innerHTML = '<i style="background:var(' + c[i] + ')"></i>' + t[i];
+  }
+  $('colorBy').addEventListener('change', function(){
+    M.colorBy = this.value; paintLegend(); needDraw = true;
+  });
+  $('clearTrack').addEventListener('click', function(){
+    if (track.length && !confirm('Discard ' + track.length + ' recorded points?')) return;
+    track = []; trackDist = 0; seen = Object.create(null); logLines = [];
+    resetStats();
+    try { localStorage.removeItem('arrowhead.track'); } catch (e){}
+    needDraw = true;
+  });
+  window.addEventListener('resize', function(){ needDraw = true; });
+
+  /* ================= import ================= */
+  function childNum(el, tag){ var c = el.getElementsByTagName(tag)[0];
+    if (!c) return null; var v = parseFloat(c.textContent); return isNaN(v) ? null : v; }
+  function childText(el, tag){ var c = el.getElementsByTagName(tag)[0];
+    return c ? c.textContent.trim() : ''; }
+
+  function parseGPX(text){
+    var doc = new DOMParser().parseFromString(text, 'application/xml');
+    if (doc.getElementsByTagName('parsererror').length) throw new Error('not valid XML');
+    var nodes = doc.getElementsByTagName('trkpt');
+    if (!nodes.length) nodes = doc.getElementsByTagName('wpt');
+    var out = [];
+    for (var i = 0; i < nodes.length; i++){
+      var n = nodes[i];
+      var lat = parseFloat(n.getAttribute('lat')), lon = parseFloat(n.getAttribute('lon'));
+      if (isNaN(lat) || isNaN(lon)) continue;
+      out.push({ iso: childText(n,'time') || null, lat: lat, lon: lon, alt: childNum(n,'ele'),
+                 dim: 3, sats: childNum(n,'sat'), hdop: childNum(n,'hdop'), rssi: null });
+    }
+    return out;
+  }
+  function parseCSV(text){
+    var rows = text.replace(/\r/g,'').split('\n').filter(function(l){ return l.trim(); });
+    if (rows.length < 2) throw new Error('no data rows');
+    var head = rows[0].toLowerCase().split(',').map(function(h){ return h.trim(); });
+    var col = function(){ for (var i=0;i<arguments.length;i++){
+      var k = head.indexOf(arguments[i]); if (k>=0) return k; } return -1; };
+    var iLat = col('lat','latitude'), iLon = col('lon','lng','longitude');
+    if (iLat < 0 || iLon < 0) throw new Error('no lat/lon columns');
+    var iT = col('utc_time','time','timestamp'), iA = col('alt_m','alt','ele'),
+        iS = col('sats_used','sats'), iH = col('hdop'),
+        iR = col('rssi_dbm','rssi'), iN = col('snr_db','snr'), iQ = col('seq'),
+        iG = col('range_m','range');
+    var nz = function(f,k){ if (k<0) return null; var v = parseFloat(f[k]);
+      return isNaN(v) ? null : v; };
+    var out = [];
+    for (var r = 1; r < rows.length; r++){
+      var f = rows[r].split(',');
+      var lat = parseFloat(f[iLat]), lon = parseFloat(f[iLon]);
+      if (isNaN(lat) || isNaN(lon)) continue;
+      out.push({ iso: iT>=0 ? (f[iT]||null) : null, lat: lat, lon: lon, alt: nz(f,iA),
+                 dim: 3, sats: nz(f,iS), hdop: nz(f,iH), rssi: nz(f,iR), lsnr: nz(f,iN),
+                 seq: nz(f,iQ), range: nz(f,iG) });
+    }
+    return out;
+  }
+  function importFile(file){
+    if (wantConnected){ alert('Disconnect first — importing while recording would mix two runs.'); return; }
+    if (track.length && !confirm('Replace the ' + track.length +
+        ' points currently loaded? Export them first if you want to keep them.')) return;
+    var fr = new FileReader();
+    fr.onload = function(){
+      try {
+        var txt = String(fr.result);
+        var pts = /^\s*</.test(txt) ? parseGPX(txt) : parseCSV(txt);
+        if (!pts.length) throw new Error('no usable points found');
+        setTrack(pts);
+        setStatus('Loaded ' + pts.length + ' points from ' + file.name, false);
+      } catch (e){ alert('Could not read ' + file.name + ': ' + (e && e.message ? e.message : e)); }
+    };
+    fr.onerror = function(){ alert('Could not read ' + file.name); };
+    fr.readAsText(file);
+  }
+  $('impBtn').addEventListener('click', function(){ $('impFile').click(); });
+  $('impFile').addEventListener('change', function(){
+    if (this.files && this.files[0]) importFile(this.files[0]); this.value = ''; });
+  box.addEventListener('dragover', function(e){ e.preventDefault(); });
+  box.addEventListener('drop', function(e){
+    e.preventDefault();
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0])
+      importFile(e.dataTransfer.files[0]);
+  });
+
+  /* ================= export ================= */
+  function download(name, mime, text){
+    var blob = new Blob([text], { type: mime });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  }
+  function stamp(){
+    var d = new Date(), p = function(v){ return (v<10?'0':'')+v; };
+    return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes());
+  }
+  function noTrack(){ if (track.length) return false; alert('No points recorded yet.'); return true; }
+
+  $('expGpx').addEventListener('click', function(){
+    if (noTrack()) return;
+    var out = ['<?xml version="1.0" encoding="UTF-8"?>',
+      '<gpx version="1.1" creator="Arrowhead Link" xmlns="http://www.topografix.com/GPX/1/1">',
+      '<trk><name>Arrowhead range test ' + stamp() + '</name><trkseg>'];
+    track.forEach(function(p){
+      var s = '<trkpt lat="'+p.lat.toFixed(7)+'" lon="'+p.lon.toFixed(7)+'">';
+      if (p.alt !== null && p.alt !== undefined) s += '<ele>'+p.alt.toFixed(1)+'</ele>';
+      if (p.iso) s += '<time>'+p.iso+'</time>';
+      s += '<fix>3d</fix>';
+      if (p.sats !== null && p.sats !== undefined) s += '<sat>'+p.sats+'</sat>';
+      if (p.hdop !== null && p.hdop !== undefined) s += '<hdop>'+p.hdop+'</hdop>';
+      if (p.rssi !== null && p.rssi !== undefined)
+        s += '<cmt>RSSI '+p.rssi+' dBm, SNR '+(p.lsnr!==undefined?p.lsnr:'?')+' dB'+
+             (p.range!==null&&p.range!==undefined ? ', range '+p.range.toFixed(0)+' m' : '')+'</cmt>';
+      out.push(s + '</trkpt>');
+    });
+    out.push('</trkseg></trk></gpx>');
+    download('arrowhead-'+stamp()+'.gpx', 'application/gpx+xml', out.join('\n'));
+  });
+
+  $('expCsv').addEventListener('click', function(){
+    if (noTrack()) return;
+    var out = ['utc_time,seq,lat,lon,alt_m,sats_used,hdop,rssi_dbm,snr_db,range_m'];
+    track.forEach(function(p){
+      out.push([p.iso||'', p.seq===undefined?'':p.seq, p.lat.toFixed(7), p.lon.toFixed(7),
+                p.alt===null||p.alt===undefined?'':p.alt.toFixed(1),
+                p.sats===null||p.sats===undefined?'':p.sats,
+                p.hdop===null||p.hdop===undefined?'':p.hdop,
+                p.rssi===null||p.rssi===undefined?'':p.rssi,
+                p.lsnr===null||p.lsnr===undefined?'':p.lsnr,
+                p.range===null||p.range===undefined?'':p.range.toFixed(0)].join(','));
+    });
+    download('arrowhead-'+stamp()+'.csv', 'text/csv', out.join('\n'));
+  });
+
+  /* ================= boot ================= */
+  resetStats();
+
+  if (!navigator.bluetooth){
+    $('unsupported').style.display = '';
+    $('connect').disabled = true;
+    setStatus('Web Bluetooth unavailable', false);
+  }
+  $('connect').addEventListener('click', function(){ wantConnected ? disconnect() : connect(); });
+  $('reset').addEventListener('click', function(){ resetStats(); logLines = []; });
+  window.addEventListener('beforeunload', function(e){
+    if (track.length){ e.preventDefault(); e.returnValue = ''; }
+  });
+
+  restore();
+  paintLegend();
+  setFollow(true);
+  setInterval(render, 250);
+  (function loop(){
+    if (needDraw){ needDraw = false; drawMap(); }
+    requestAnimationFrame(loop);
+  })();
+  render();
+
+  // Debug hook: __ah.feed(new DataView(new Uint8Array([...]).buffer))
+  window.__ah = { feed: onRecord, track: function(){ return track; }, stats: function(){ return stats; } };
+})();
+</script>
+</body>
+</html>
