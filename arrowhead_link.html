@@ -111,12 +111,14 @@
     .st-Armed    { color:#ffd54f; }
     .st-Idle     { opacity:.8; }
     .st-Charging { color:#4fc3f7; }
-    .cmdbar { display:flex; flex-wrap:wrap; gap:6px; align-items:center;
-              margin-bottom:10px; }
-    .cmdbar .cmd { padding:6px 10px; }
-    .cmdbar .danger { border-color:#7a3b3b; }
-    .cmdlabel { font-size:12px; opacity:.7; margin-left:6px; }
-    .cmdnote  { font-size:12px; opacity:.8; margin-left:6px; }
+    .ctrl { margin-bottom:12px; }
+    .ctrlrow { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+    .ctrlrow label { font-size:14px; opacity:.75; min-width:96px; }
+    .ctrlrow select { font-size:16px; padding:8px 10px; min-width:170px;
+                      background:#141a22; color:inherit;
+                      border:1px solid #2a3340; border-radius:8px; }
+    .ctrlrow .cmd { font-size:15px; padding:8px 14px; }
+    .cmdnote { font-size:13px; opacity:.85; }
   </style>
   <style>
     .buildtag { font-size:11px; opacity:.55; margin-left:10px;
@@ -130,7 +132,7 @@
   <!-- Bump this on every upload. The tracker cards and command bar stay
        hidden until a packet arrives, so without a visible marker a fresh
        page and a cached one look identical. -->
-  <span id="buildTag" class="buildtag">build 2026-10-30 · multi-tracker</span>
+  <span id="buildTag" class="buildtag">build 2026-10-30b · simple controls</span>
   <button id="connect" class="primary">Connect</button>
   <button id="reset">Reset stats</button>
   <div class="spacer"></div>
@@ -140,20 +142,35 @@
 <main>
   <div id="trackerPanel" style="display:none">
     <div id="nodeBar" class="nodebar"></div>
-    <div class="cmdbar">
-      <span class="cmdlabel">Send to</span>
-      <select id="cmdTarget">
-        <option value="0">All trackers</option>
-      </select>
-      <button class="cmd" data-cmd="1">Arm</button>
-      <button class="cmd" data-cmd="2">Disarm</button>
-      <button class="cmd danger" data-cmd="3">Force track</button>
-      <button class="cmd" data-cmd="4">Ping</button>
-      <span class="cmdlabel">Update every</span>
-      <button class="cmd" data-interval="15">15 s</button>
-      <button class="cmd" data-interval="60">1 min</button>
-      <button class="cmd" data-interval="300">5 min</button>
-      <span id="cmdNote" class="cmdnote"></span>
+    <div class="ctrl">
+      <div class="ctrlrow">
+        <label for="cmdTarget">Tracker</label>
+        <select id="cmdTarget"><option value="0">All trackers</option></select>
+      </div>
+      <div class="ctrlrow">
+        <label for="cmdState">Set state</label>
+        <!-- Resets to the placeholder after every send, so changing state is
+             always a deliberate pick rather than something a stray tap on a
+             remembered value can do. -->
+        <select id="cmdState">
+          <option value="">— choose —</option>
+          <option value="1">Arm</option>
+          <option value="2">Disarm</option>
+          <option value="3">Start tracking</option>
+        </select>
+      </div>
+      <div class="ctrlrow">
+        <label for="cmdInterval">Update every</label>
+        <select id="cmdInterval">
+          <option value="15">15 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="300">5 minutes</option>
+        </select>
+      </div>
+      <div class="ctrlrow">
+        <button class="cmd" id="refreshBtn">Refresh now</button>
+        <span id="cmdNote" class="cmdnote"></span>
+      </div>
     </div>
   </div>
 
@@ -256,7 +273,7 @@
       <table class="kv">
         <tr><td>UTC</td><td class="mono" id="pTime">—</td></tr>
         <tr><td>Tracker state</td><td class="mono" id="pSpd">—</td></tr>
-        <tr><td>Course</td><td class="mono" id="pCrs">—</td></tr>
+        <tr><td>Update every</td><td class="mono" id="pCrs">—</td></tr>
       </table>
       <table class="kv">
         <tr><td>Base (you)</td><td class="mono" id="pBase">—</td></tr>
@@ -323,11 +340,22 @@
     stats = n.stats; hist = n.hist;
   }
 
+  // Show what the tracker reports, not whatever was last picked on screen.
+  function syncIntervalPicker(){
+    var n = (activeNode !== null) ? nodes[activeNode] : null;
+    var p = n && n.lastPkt ? n.lastPkt.period : 0;
+    if (!p) return;
+    var sel = $('cmdInterval');
+    for (var i = 0; i < sel.options.length; i++)
+      if (parseInt(sel.options[i].value, 10) === p) { sel.value = String(p); return; }
+  }
+
   function selectNode(id){
     if (activeNode !== null) nodeStore(activeNode).trackDist = trackDist;
     activeNode = id;
     syncActive();
     needDraw = true;
+    syncIntervalPicker();
     renderNodeBar();
     render();
   }
@@ -372,7 +400,14 @@
     if (sel.innerHTML !== opts){ want = sel.value || '0'; sel.innerHTML = opts; sel.value = want; }
   }
 
-  var CMD_INTERVAL = 5;
+  var CMD_INTERVAL = 5, CMD_PING = 4;
+
+  function fmtPeriod(sec){
+    if (!sec) return '—';
+    if (sec < 60) return sec + ' seconds';
+    if (sec === 60) return '1 minute';
+    return Math.round(sec/60) + ' minutes';
+  }
 
   async function sendCmd(cmd, param){
     if (!chrCmd){ $('cmdNote').textContent = 'not connected'; return; }
@@ -462,7 +497,7 @@
       // on, so a button press can be confirmed rather than assumed.
       status:  dv.getUint8(23),
       lastCmd: dv.getUint8(24),
-      course: dv.getUint16(25, true) / 10,
+      period: dv.getUint16(25, true),   // tracking interval, seconds
       sats:   dv.getUint8(27),
       valid:  dv.getUint8(28) === 1,
       rssi:   dv.getInt16(29, true),
@@ -520,7 +555,8 @@
     }
 
     renderNodeBar();
-    if (!isActive) return;                 // the rest only updates the view
+    if (!isActive) return;
+    syncIntervalPicker();                 // the rest only updates the view
 
     logLines.unshift('#' + String(r.seq).padStart(5) + '  ' +
       (r.valid ? r.lat.toFixed(6) + ',' + r.lon.toFixed(6) : 'no fix'.padEnd(20)) +
@@ -564,6 +600,26 @@
     var cmd = new Uint8Array(2);
     cmd[0] = resume & 0xFF; cmd[1] = (resume >> 8) & 0xFF;
     await chrCmd.writeValue(cmd);
+
+    /*
+     * Ask every tracker to report itself straight away.
+     *
+     * Without this the page sits empty until each tracker's next scheduled
+     * update, which on a five minute interval means five minutes of looking
+     * broken. The backlog replay only brings back what was already sent, so
+     * it cannot show a tracker that has been quiet.
+     *
+     * Short delay so this does not land on top of the resume write above.
+     */
+    setTimeout(function(){
+      if (chrCmd) {
+        var prev = $('cmdTarget').value;
+        $('cmdTarget').value = '0';    // everyone, whatever was selected
+        sendCmd(CMD_PING, 0);
+        $('cmdTarget').value = prev;
+        $('cmdNote').textContent = 'asking trackers to report…';
+      }
+    }, 600);
 
     wantConnected = true;
     $('connect').textContent = 'Disconnect';
@@ -699,7 +755,7 @@
       // Byte 23 carries the tracker's state now, not a speed it never sent.
       $('pSpd').textContent = stateName(r.status) +
         (stateFlags(r.status) ? '  ' + stateFlags(r.status) : '');
-      $('pCrs').textContent = r.valid ? r.course.toFixed(0) + '°' : '—';
+      $('pCrs').textContent = r.period ? fmtPeriod(r.period) : '—';
       $('pBrg').textContent = (r.valid && base) ? bearing(base, r).toFixed(0) + '°' : '—';
     }
     $('pBase').textContent = base ? base.lat.toFixed(6) + ', ' + base.lon.toFixed(6) : '—';
@@ -1021,13 +1077,18 @@
     if (card) selectNode(parseInt(card.getAttribute('data-node'), 10));
   });
 
-  Array.prototype.forEach.call(document.querySelectorAll('.cmdbar .cmd'), function(b){
-    b.addEventListener('click', function(){
-      var iv = b.getAttribute('data-interval');
-      if (iv) sendCmd(CMD_INTERVAL, parseInt(iv, 10));
-      else    sendCmd(parseInt(b.getAttribute('data-cmd'), 10), 0);
-    });
+  $('cmdState').addEventListener('change', function(){
+    var v = this.value;
+    if (!v) return;
+    this.value = '';                   // back to the placeholder straight away
+    sendCmd(parseInt(v, 10), 0);
   });
+
+  $('cmdInterval').addEventListener('change', function(){
+    sendCmd(CMD_INTERVAL, parseInt(this.value, 10));
+  });
+
+  $('refreshBtn').addEventListener('click', function(){ sendCmd(CMD_PING, 0); });
 
   // Ages on the cards go stale on their own, so refresh even with no traffic.
   setInterval(renderNodeBar, 2000);
