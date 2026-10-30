@@ -124,6 +124,25 @@
     .buildtag { font-size:11px; opacity:.55; margin-left:10px;
                 font-family:ui-monospace,Menlo,Consolas,monospace; }
   </style>
+  <style>
+    #devSection { margin-top:14px; border-top:1px solid #2a3340; padding-top:10px; }
+    #devSection > summary { cursor:pointer; font-size:14px; opacity:.7;
+                            padding:8px 2px; list-style:none; user-select:none; }
+    #devSection > summary::-webkit-details-marker { display:none; }
+    #devSection > summary::before { content:'▸ '; }
+    #devSection[open] > summary::before { content:'▾ '; }
+    #devSection > summary:hover { opacity:1; }
+  </style>
+  <style>
+    #posBox { border:1px solid #2a3340; border-radius:10px; padding:12px 14px;
+              margin:10px 0 12px; background:#141a22; }
+    .poslab { font-size:12px; opacity:.6; margin-bottom:4px; }
+    .posval { font-size:21px; font-weight:600; letter-spacing:.3px;
+              font-family:ui-monospace,Menlo,Consolas,monospace; word-break:break-all; }
+    .posrow { display:flex; align-items:center; gap:10px; margin-top:10px; }
+    .posage { font-size:12px; opacity:.65; }
+    .posval.stale { opacity:.55; }
+  </style>
 </head>
 <body>
 
@@ -132,7 +151,7 @@
   <!-- Bump this on every upload. The tracker cards and command bar stay
        hidden until a packet arrives, so without a visible marker a fresh
        page and a cached one look identical. -->
-  <span id="buildTag" class="buildtag">build 2026-10-30b · simple controls</span>
+  <span id="buildTag" class="buildtag">build 2026-10-30e · position up top</span>
   <button id="connect" class="primary">Connect</button>
   <button id="reset">Reset stats</button>
   <div class="spacer"></div>
@@ -142,6 +161,20 @@
 <main>
   <div id="trackerPanel" style="display:none">
     <div id="nodeBar" class="nodebar"></div>
+    <div id="posBox">
+      <div class="poslab" id="posLab">Position</div>
+      <div class="posval" id="posText">waiting for a fix…</div>
+      <div class="posrow">
+        <button class="cmd" id="copyPos">Copy coordinates</button>
+        <span class="posage" id="posAge"></span>
+      </div>
+    </div>
+
+    <div class="ctrlrow">
+      <button class="cmd" id="refreshBtn">Ping</button>
+      <span id="cmdNote" class="cmdnote"></span>
+    </div>
+
     <div class="ctrl">
       <div class="ctrlrow">
         <label for="cmdTarget">Tracker</label>
@@ -167,10 +200,6 @@
           <option value="300">5 minutes</option>
         </select>
       </div>
-      <div class="ctrlrow">
-        <button class="cmd" id="refreshBtn">Refresh now</button>
-        <span id="cmdNote" class="cmdnote"></span>
-      </div>
     </div>
   </div>
 
@@ -179,44 +208,6 @@
     On iPhone use <b>Bluefy</b> — Safari and iOS Chrome cannot do Bluetooth at all.
     The page also has to be served over <code>https://</code> or <code>localhost</code>;
     opening it from a file share will not work.
-  </div>
-
-  <div class="tiles">
-    <div class="tile"><div class="lab">Range</div>
-      <div class="val" id="tRange">—</div><div class="sub" id="tRangeSub">base position unknown</div></div>
-    <div class="tile"><div class="lab">Link RSSI</div>
-      <div class="val" id="tRssi">—</div><div class="sub" id="tRssiSub">dBm</div></div>
-    <div class="tile"><div class="lab">Link SNR</div>
-      <div class="val" id="tSnr">—</div><div class="sub" id="tSnrSub">dB</div></div>
-    <div class="tile"><div class="lab">Delivery</div>
-      <div class="val" id="tPdr">—</div><div class="sub" id="tPdrSub">packets received</div></div>
-    <div class="tile"><div class="lab">Rover fix</div>
-      <div class="val bad" id="tFix">—</div><div class="sub" id="tFixSub">no data</div></div>
-    <div class="tile"><div class="lab">Rover sats</div>
-      <div class="val" id="tSats">—</div><div class="sub" id="tSatsSub">HDOP —</div></div>
-  </div>
-
-  <div class="panel">
-    <h2>Link quality — last 60 packets</h2>
-    <div class="sparks">
-      <div class="spark"><div class="top"><span>RSSI <span class="muted">(dBm)</span></span><b id="sp1v">—</b></div>
-        <svg viewBox="0 0 300 46" preserveAspectRatio="none"><polyline id="sp1" fill="none"
-          stroke="var(--ok)" stroke-width="1.6" vector-effect="non-scaling-stroke" points=""/></svg></div>
-      <div class="spark"><div class="top"><span>SNR <span class="muted">(dB)</span></span><b id="sp2v">—</b></div>
-        <svg viewBox="0 0 300 46" preserveAspectRatio="none"><polyline id="sp2" fill="none"
-          stroke="var(--good)" stroke-width="1.6" vector-effect="non-scaling-stroke" points=""/></svg></div>
-      <div class="spark"><div class="top"><span>Range <span class="muted">(m)</span></span><b id="sp3v">—</b></div>
-        <svg viewBox="0 0 300 46" preserveAspectRatio="none"><polyline id="sp3" fill="none"
-          stroke="var(--rover)" stroke-width="1.6" vector-effect="non-scaling-stroke" points=""/></svg></div>
-    </div>
-    <div class="row" style="margin-top:14px">
-      <table class="kv"><tr><td>Received</td><td class="mono" id="sRx">—</td></tr>
-        <tr><td>Lost</td><td class="mono" id="sLost">—</td></tr></table>
-      <table class="kv"><tr><td>Best RSSI</td><td class="mono" id="sBest">—</td></tr>
-        <tr><td>Worst RSSI</td><td class="mono" id="sWorst">—</td></tr></table>
-      <table class="kv"><tr><td>Max range</td><td class="mono" id="sMaxR">—</td></tr>
-        <tr><td>Last heard</td><td class="mono" id="sAge">—</td></tr></table>
-    </div>
   </div>
 
   <div class="panel">
@@ -228,12 +219,8 @@
         <option value="street">Streets</option>
         <option value="none">No tiles (grid)</option>
       </select>
-      <select id="colorBy" class="sm">
-        <option value="rssi">Color: RSSI</option>
-        <option value="hdop">Color: HDOP</option>
-      </select>
-      <button class="sm" id="followBtn">Follow: on</button>
-      <button class="sm" id="fitBtn">Fit track</button>
+      <button class="sm" id="followBtn">Auto-center: on</button>
+      <button class="sm" id="fitBtn">Show whole track</button>
       <div class="spacer"></div>
       <button class="sm" id="impBtn">Import…</button>
       <button class="sm" id="expGpx">Export GPX</button>
@@ -262,34 +249,79 @@
       writes a file you can keep.</span></div>
   </div>
 
-  <div class="panel">
-    <h2>Rover &amp; link detail</h2>
-    <div class="row">
-      <table class="kv">
-        <tr><td>Latitude</td><td class="mono" id="pLat">—</td></tr>
-        <tr><td>Longitude</td><td class="mono" id="pLon">—</td></tr>
-        <tr><td>Altitude</td><td class="mono" id="pAlt">—</td></tr>
-      </table>
-      <table class="kv">
-        <tr><td>UTC</td><td class="mono" id="pTime">—</td></tr>
-        <tr><td>Tracker state</td><td class="mono" id="pSpd">—</td></tr>
-        <tr><td>Update every</td><td class="mono" id="pCrs">—</td></tr>
-      </table>
-      <table class="kv">
-        <tr><td>Base (you)</td><td class="mono" id="pBase">—</td></tr>
-        <tr><td>Base accuracy</td><td class="mono" id="pBaseAcc">—</td></tr>
-        <tr><td>Bearing to rover</td><td class="mono" id="pBrg">—</td></tr>
-      </table>
+  <!-- Everything below the map is development detail: link quality,
+       raw packets, import/export. Collapsed by default because the
+       hunter never needs it, but one tap away when testing. -->
+  <details id="devSection">
+    <summary>Diagnostics</summary>
+    <div class="tiles">
+      <div class="tile"><div class="lab">Range</div>
+        <div class="val" id="tRange">—</div><div class="sub" id="tRangeSub">base position unknown</div></div>
+      <div class="tile"><div class="lab">Link RSSI</div>
+        <div class="val" id="tRssi">—</div><div class="sub" id="tRssiSub">dBm</div></div>
+      <div class="tile"><div class="lab">Link SNR</div>
+        <div class="val" id="tSnr">—</div><div class="sub" id="tSnrSub">dB</div></div>
+      <div class="tile"><div class="lab">Delivery</div>
+        <div class="val" id="tPdr">—</div><div class="sub" id="tPdrSub">packets received</div></div>
+      <div class="tile"><div class="lab">Rover fix</div>
+        <div class="val bad" id="tFix">—</div><div class="sub" id="tFixSub">no data</div></div>
+      <div class="tile"><div class="lab">Rover sats</div>
+        <div class="val" id="tSats">—</div><div class="sub" id="tSatsSub">satellites</div></div>
     </div>
-  </div>
 
-  <div class="panel">
-    <details>
-      <summary>Packet log — newest first</summary>
-      <div style="margin:10px 0 8px"><label><input type="checkbox" id="freeze"> freeze</label></div>
-      <pre id="log">—</pre>
-    </details>
-  </div>
+    <div class="panel">
+      <h2>Link quality — last 60 packets</h2>
+      <div class="sparks">
+        <div class="spark"><div class="top"><span>RSSI <span class="muted">(dBm)</span></span><b id="sp1v">—</b></div>
+          <svg viewBox="0 0 300 46" preserveAspectRatio="none"><polyline id="sp1" fill="none"
+            stroke="var(--ok)" stroke-width="1.6" vector-effect="non-scaling-stroke" points=""/></svg></div>
+        <div class="spark"><div class="top"><span>SNR <span class="muted">(dB)</span></span><b id="sp2v">—</b></div>
+          <svg viewBox="0 0 300 46" preserveAspectRatio="none"><polyline id="sp2" fill="none"
+            stroke="var(--good)" stroke-width="1.6" vector-effect="non-scaling-stroke" points=""/></svg></div>
+        <div class="spark"><div class="top"><span>Range <span class="muted">(m)</span></span><b id="sp3v">—</b></div>
+          <svg viewBox="0 0 300 46" preserveAspectRatio="none"><polyline id="sp3" fill="none"
+            stroke="var(--rover)" stroke-width="1.6" vector-effect="non-scaling-stroke" points=""/></svg></div>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <table class="kv"><tr><td>Received</td><td class="mono" id="sRx">—</td></tr>
+          <tr><td>Lost</td><td class="mono" id="sLost">—</td></tr></table>
+        <table class="kv"><tr><td>Best RSSI</td><td class="mono" id="sBest">—</td></tr>
+          <tr><td>Worst RSSI</td><td class="mono" id="sWorst">—</td></tr></table>
+        <table class="kv"><tr><td>Max range</td><td class="mono" id="sMaxR">—</td></tr>
+          <tr><td>Last heard</td><td class="mono" id="sAge">—</td></tr></table>
+      </div>
+    </div>
+
+
+    <div class="panel">
+      <h2>Rover &amp; link detail</h2>
+      <div class="row">
+        <table class="kv">
+          <tr><td>Latitude</td><td class="mono" id="pLat">—</td></tr>
+          <tr><td>Longitude</td><td class="mono" id="pLon">—</td></tr>
+          <tr><td>Altitude</td><td class="mono" id="pAlt">—</td></tr>
+        </table>
+        <table class="kv">
+          <tr><td>UTC</td><td class="mono" id="pTime">—</td></tr>
+          <tr><td>Tracker state</td><td class="mono" id="pSpd">—</td></tr>
+          <tr><td>Update every</td><td class="mono" id="pCrs">—</td></tr>
+        </table>
+        <table class="kv">
+          <tr><td>Base (you)</td><td class="mono" id="pBase">—</td></tr>
+          <tr><td>Base accuracy</td><td class="mono" id="pBaseAcc">—</td></tr>
+          <tr><td>Bearing to rover</td><td class="mono" id="pBrg">—</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <details>
+        <summary>Packet log — newest first</summary>
+        <div style="margin:10px 0 8px"><label><input type="checkbox" id="freeze"> freeze</label></div>
+        <pre id="log">—</pre>
+      </details>
+    </div>
+  </details>
 </main>
 
 <script>
@@ -350,12 +382,61 @@
       if (parseInt(sel.options[i].value, 10) === p) { sel.value = String(p); return; }
   }
 
+  /*
+   * Plain decimal degrees, copyable. With no cell service the map tiles will
+   * not load, but offline hunting apps take typed coordinates - so this is the
+   * one piece of the page that still works with no signal at all.
+   *
+   * The age is shown next to it deliberately: a stale position presented as
+   * current is worse than no position, because someone will walk to it.
+   */
+  function renderPos(){
+    var n = (activeNode !== null) ? nodes[activeNode] : null;
+    var el = $('posText'), lab = $('posLab'), ageEl = $('posAge');
+    lab.textContent = (activeNode !== null) ? ('Tracker ' + activeNode + ' position')
+                                            : 'Position';
+    var last = null;
+    if (n) for (var i = n.track.length - 1; i >= 0; i--) { last = n.track[i]; break; }
+    if (!last){
+      el.textContent = 'waiting for a fix…';
+      el.classList.remove('stale');
+      ageEl.textContent = '';
+      $('copyPos').disabled = true;
+      return;
+    }
+    el.textContent = last.lat.toFixed(6) + ', ' + last.lon.toFixed(6);
+    $('copyPos').disabled = false;
+    var sec = n.lastRxMs ? Math.round((Date.now() - n.lastRxMs)/1000) : null;
+    ageEl.textContent = (sec === null) ? '' : 'as of ' + fmtAge(sec);
+    el.classList.toggle('stale', sec !== null && sec > 120);
+  }
+
+  function copyPos(){
+    var t = $('posText').textContent;
+    if (!t || t.indexOf(',') < 0) return;
+    function done(){ $('posAge').textContent = 'copied'; setTimeout(renderPos, 1500); }
+    // Bluefy and older WebViews may not have the async clipboard API, so fall
+    // back to the textarea trick rather than silently doing nothing.
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t).then(done, fallback);
+    } else fallback();
+    function fallback(){
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta); done();
+      } catch(e){ $('posAge').textContent = 'copy not supported — long-press to select'; }
+    }
+  }
+
   function selectNode(id){
     if (activeNode !== null) nodeStore(activeNode).trackDist = trackDist;
     activeNode = id;
     syncActive();
     needDraw = true;
     syncIntervalPicker();
+    renderPos();
     renderNodeBar();
     render();
   }
@@ -367,6 +448,12 @@
   var wakeLock = null;
 
   /* ================= tracker bar and commands ================= */
+  function fmtAge(sec){
+    if (sec < 60)   return sec + 's ago';
+    if (sec < 3600) return Math.round(sec/60) + ' min ago';
+    return Math.round(sec/3600) + ' hr ago';
+  }
+
   function renderNodeBar(){
     var ids = Object.keys(nodes).map(Number).sort(function(a,b){ return a-b; });
     var bar = $('nodeBar');
@@ -382,13 +469,16 @@
       // quiet tracker on a 5 minute interval, but the hunter still wants to
       // see at a glance which ones have spoken recently.
       var stale = (age === null || age > 60) ? ' stale' : '';
+      var st2 = n.stats, tot = st2.rx + st2.lost;
+      var pdr = tot ? Math.round(100 * st2.rx / tot) + '%' : '—';
       html += '<div class="nodecard' + (ids[i] === activeNode ? ' sel' : '') + stale +
               '" data-node="' + ids[i] + '">' +
               '<div class="nid">Tracker ' + ids[i] + '</div>' +
               '<div class="nst st-' + st + '">' + st + '</div>' +
-              '<div class="nmeta">' + (p ? stateFlags(p.status) || '·' : '') + '</div>' +
-              '<div class="nmeta">' + (p ? p.rssi + ' dBm' : '') +
-              (age !== null ? '  ' + age + 's' : '') + '</div>' +
+              '<div class="nmeta">' + (age === null ? 'not heard yet'
+                                                    : 'heard ' + fmtAge(age)) + '</div>' +
+              '<div class="nmeta">' + (p ? p.rssi + ' dBm · ' + pdr + ' received' : '') +
+              '</div>' +
               '</div>';
     }
     bar.innerHTML = html;
@@ -556,7 +646,8 @@
 
     renderNodeBar();
     if (!isActive) return;
-    syncIntervalPicker();                 // the rest only updates the view
+    syncIntervalPicker();
+    renderPos();                 // the rest only updates the view
 
     logLines.unshift('#' + String(r.seq).padStart(5) + '  ' +
       (r.valid ? r.lat.toFixed(6) + ',' + r.lon.toFixed(6) : 'no fix'.padEnd(20)) +
@@ -738,7 +829,7 @@
 
     $('tSats').textContent = r ? r.sats : '—';
     $('tSats').className = 'val ' + clsHi(r ? r.sats : null, [4, 6, 9]);
-    $('tSatsSub').textContent = r && r.hdop ? 'HDOP ' + r.hdop.toFixed(2) : 'HDOP —';
+    $('tSatsSub').textContent = 'satellites';
 
     $('sRx').textContent   = stats.rx;
     $('sLost').textContent = stats.lost;
@@ -1039,7 +1130,7 @@
 
   function setFollow(on){
     M.follow = on;
-    $('followBtn').textContent = 'Follow: ' + (on ? 'on' : 'off');
+    $('followBtn').textContent = 'Auto-center: ' + (on ? 'on' : 'off');
     $('recenter').style.display = on ? 'none' : 'block';
     needDraw = true;
   }
@@ -1089,9 +1180,21 @@
   });
 
   $('refreshBtn').addEventListener('click', function(){ sendCmd(CMD_PING, 0); });
+  $('copyPos').addEventListener('click', copyPos);
+
+  // Remember whether diagnostics were left open. Wrapped because storage
+  // throws in private browsing on some phones, and a thrown exception here
+  // would take the rest of the wiring below it with it.
+  (function(){
+    var d = $('devSection');
+    try { if (localStorage.getItem('ahDiag') === '1') d.open = true; } catch(e){}
+    d.addEventListener('toggle', function(){
+      try { localStorage.setItem('ahDiag', d.open ? '1' : '0'); } catch(e){}
+    });
+  })();
 
   // Ages on the cards go stale on their own, so refresh even with no traffic.
-  setInterval(renderNodeBar, 2000);
+  setInterval(function(){ renderNodeBar(); renderPos(); }, 2000);
 
   $('fitBtn').addEventListener('click', fitTrack);
   $('followBtn').addEventListener('click', function(){ setFollow(!M.follow); });
@@ -1101,17 +1204,13 @@
   $('basemap').addEventListener('change', function(){
     M.basemap = this.value; tileErr = 0; needDraw = true; });
   var LEGEND = {
-    rssi: ['RSSI ≥ −100 dBm', '−100 to −115', 'below −115'],
-    hdop: ['HDOP ≤ 2', 'HDOP 2–5', 'HDOP > 5']
+    rssi: ['RSSI ≥ −100 dBm', '−100 to −115', 'below −115']
   };
   function paintLegend(){
     var t = LEGEND[M.colorBy], c = ['--good','--ok','--warn'];
     for (var i = 0; i < 3; i++)
       $('lg'+i).innerHTML = '<i style="background:var(' + c[i] + ')"></i>' + t[i];
   }
-  $('colorBy').addEventListener('change', function(){
-    M.colorBy = this.value; paintLegend(); needDraw = true;
-  });
   $('clearTrack').addEventListener('click', function(){
     if (track.length && !confirm('Discard ' + track.length + ' recorded points?')) return;
     track = []; trackDist = 0; seen = Object.create(null); logLines = [];
