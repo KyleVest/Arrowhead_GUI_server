@@ -97,6 +97,27 @@
   code{font-family:ui-monospace,Consolas,monospace;background:var(--panel2);padding:1px 5px;
     border-radius:4px;font-size:12px}
 </style>
+  <style>
+    .nodebar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+    .nodecard { border:1px solid #2a3340; border-radius:8px; padding:8px 12px;
+                cursor:pointer; min-width:132px; background:#141a22; }
+    .nodecard.sel { border-color:#4f9cf9; background:#182434; }
+    .nodecard .nid { font-weight:600; font-size:13px; }
+    .nodecard .nst { font-size:12px; margin-top:2px; }
+    .nodecard .nmeta { font-size:11px; opacity:.65; margin-top:2px;
+                       font-family:ui-monospace,Menlo,Consolas,monospace; }
+    .nodecard.stale { opacity:.5; }
+    .st-Tracking { color:#ff8a65; font-weight:600; }
+    .st-Armed    { color:#ffd54f; }
+    .st-Idle     { opacity:.8; }
+    .st-Charging { color:#4fc3f7; }
+    .cmdbar { display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+              margin-bottom:10px; }
+    .cmdbar .cmd { padding:6px 10px; }
+    .cmdbar .danger { border-color:#7a3b3b; }
+    .cmdlabel { font-size:12px; opacity:.7; margin-left:6px; }
+    .cmdnote  { font-size:12px; opacity:.8; margin-left:6px; }
+  </style>
 </head>
 <body>
 
@@ -109,6 +130,25 @@
 </header>
 
 <main>
+  <div id="trackerPanel" style="display:none">
+    <div id="nodeBar" class="nodebar"></div>
+    <div class="cmdbar">
+      <span class="cmdlabel">Send to</span>
+      <select id="cmdTarget">
+        <option value="0">All trackers</option>
+      </select>
+      <button class="cmd" data-cmd="1">Arm</button>
+      <button class="cmd" data-cmd="2">Disarm</button>
+      <button class="cmd danger" data-cmd="3">Force track</button>
+      <button class="cmd" data-cmd="4">Ping</button>
+      <span class="cmdlabel">Update every</span>
+      <button class="cmd" data-interval="15">15 s</button>
+      <button class="cmd" data-interval="60">1 min</button>
+      <button class="cmd" data-interval="300">5 min</button>
+      <span id="cmdNote" class="cmdnote"></span>
+    </div>
+  </div>
+
   <div id="unsupported" class="note" style="display:none">
     <b>This browser has no Web Bluetooth.</b> On Android and desktop use Chrome or Edge.
     On iPhone use <b>Bluefy</b> — Safari and iOS Chrome cannot do Bluetooth at all.
@@ -207,7 +247,7 @@
       </table>
       <table class="kv">
         <tr><td>UTC</td><td class="mono" id="pTime">—</td></tr>
-        <tr><td>Speed</td><td class="mono" id="pSpd">—</td></tr>
+        <tr><td>Tracker state</td><td class="mono" id="pSpd">—</td></tr>
         <tr><td>Course</td><td class="mono" id="pCrs">—</td></tr>
       </table>
       <table class="kv">
@@ -244,12 +284,107 @@
   var device = null, gatt = null, chrCmd = null, wantConnected = false;
   var track = [], seen = Object.create(null), trackDist = 0;
   var lastPkt = null, lastRxMs = 0;
+
+  /*
+   * Three trackers share one receiver, so everything that describes "the
+   * tracker" is now per node. Merging them would be worse than useless - it
+   * would draw three animals as one track and read every alternation between
+   * nodes as an enormous sequence gap.
+   *
+   * The globals above stay as the ACTIVE view so the rest of the page is
+   * untouched; syncActive() copies the selected node's store into them.
+   */
+  var nodes = Object.create(null);
+  var activeNode = null;
+
+  function nodeStore(id){
+    if (!nodes[id]) nodes[id] = {
+      id: id, track: [], seen: Object.create(null), trackDist: 0,
+      lastPkt: null, lastRxMs: 0,
+      stats: { rx:0, lost:0, best:null, worst:null, maxRange:0, firstSeq:null, lastSeq:null },
+      hist: { rssi: [], snr: [], range: [] }
+    };
+    return nodes[id];
+  }
+
+  function syncActive(){
+    if (activeNode === null) return;
+    var n = nodeStore(activeNode);
+    track = n.track; seen = n.seen; trackDist = n.trackDist;
+    lastPkt = n.lastPkt; lastRxMs = n.lastRxMs;
+    stats = n.stats; hist = n.hist;
+  }
+
+  function selectNode(id){
+    if (activeNode !== null) nodeStore(activeNode).trackDist = trackDist;
+    activeNode = id;
+    syncActive();
+    needDraw = true;
+    renderNodeBar();
+    render();
+  }
   var base = null;                       // {lat, lon, acc} from the phone's own GPS
   var stats = null;
   var hist = { rssi: [], snr: [], range: [] };
   var logLines = [];
   var needDraw = true;
   var wakeLock = null;
+
+  /* ================= tracker bar and commands ================= */
+  function renderNodeBar(){
+    var ids = Object.keys(nodes).map(Number).sort(function(a,b){ return a-b; });
+    var bar = $('nodeBar');
+    if (!ids.length){ $('trackerPanel').style.display = 'none'; return; }
+    $('trackerPanel').style.display = '';
+
+    var html = '', now = Date.now();
+    for (var i = 0; i < ids.length; i++){
+      var n = nodes[ids[i]], p = n.lastPkt;
+      var age = n.lastRxMs ? Math.round((now - n.lastRxMs)/1000) : null;
+      var st  = p ? stateName(p.status) : '—';
+      // Past a minute without a packet the card dims. Nothing is wrong with a
+      // quiet tracker on a 5 minute interval, but the hunter still wants to
+      // see at a glance which ones have spoken recently.
+      var stale = (age === null || age > 60) ? ' stale' : '';
+      html += '<div class="nodecard' + (ids[i] === activeNode ? ' sel' : '') + stale +
+              '" data-node="' + ids[i] + '">' +
+              '<div class="nid">Tracker ' + ids[i] + '</div>' +
+              '<div class="nst st-' + st + '">' + st + '</div>' +
+              '<div class="nmeta">' + (p ? stateFlags(p.status) || '·' : '') + '</div>' +
+              '<div class="nmeta">' + (p ? p.rssi + ' dBm' : '') +
+              (age !== null ? '  ' + age + 's' : '') + '</div>' +
+              '</div>';
+    }
+    bar.innerHTML = html;
+
+    var sel = $('cmdTarget'), want = '0';
+    var opts = '<option value="0">All trackers</option>';
+    for (var j = 0; j < ids.length; j++)
+      opts += '<option value="' + ids[j] + '">Tracker ' + ids[j] + '</option>';
+    if (sel.innerHTML !== opts){ want = sel.value || '0'; sel.innerHTML = opts; sel.value = want; }
+  }
+
+  var CMD_INTERVAL = 5;
+
+  async function sendCmd(cmd, param){
+    if (!chrCmd){ $('cmdNote').textContent = 'not connected'; return; }
+    var target = parseInt($('cmdTarget').value, 10) || 0;
+    var b = new Uint8Array(5);
+    b[0] = 0xC0;                       // marks this as a command, not a resume
+    b[1] = target;
+    b[2] = cmd;
+    b[3] = param & 0xFF;
+    b[4] = (param >> 8) & 0xFF;
+    try {
+      await chrCmd.writeValue(b);
+      // The base transmits a ~2.3 s preamble so a duty-cycled tracker can
+      // hear it, then the tracker answers. Several seconds end to end.
+      $('cmdNote').textContent = 'sent — waiting for the tracker…';
+      setTimeout(function(){ $('cmdNote').textContent = ''; }, 8000);
+    } catch (e){
+      $('cmdNote').textContent = 'send failed: ' + e.message;
+    }
+  }
 
   function resetStats(){
     stats = { rx: 0, lost: 0, best: null, worst: null, maxRange: 0, firstSeq: null, lastSeq: null };
@@ -281,6 +416,23 @@
                     : (m/1000).toFixed(2) + ' km / ' + (m/1609.34).toFixed(2) + ' mi';
   }
 
+  /* ================= tracker status ================= */
+  // These bit positions must match the tracker sketch exactly.
+  var STS_STATE = 0x03, STS_MAGNET = 0x04, STS_CHARGER = 0x08,
+      STS_GPS = 0x10, STS_FIX = 0x20, STS_RESUMED = 0x40;
+  var STATE_NAMES = ['Charging', 'Idle', 'Armed', 'Tracking'];
+
+  function stateName(st){ return STATE_NAMES[st & STS_STATE]; }
+  function stateFlags(st){
+    var f = [];
+    if (st & STS_CHARGER) f.push('chg');
+    if (st & STS_GPS)     f.push('gps');
+    if (st & STS_FIX)     f.push('fix');
+    if (st & STS_MAGNET)  f.push('mag');
+    if (st & STS_RESUMED) f.push('reset');
+    return f.join(' ');
+  }
+
   /* ================= record parsing ================= */
   // Offsets mirror the packed structs in both sketches. Everything is little-endian.
   function parseRecord(dv){
@@ -296,7 +448,12 @@
       lon:    dv.getInt32(13, true) / 1e7,
       alt:    dv.getInt32(17, true) / 100,
       hdop:   dv.getUint16(21, true) / 100,
-      speed:  dv.getUint16(23, true) / 100,
+      // Byte 23 used to be speed_cms, which the tracker never populated. It
+      // now carries the tracker's own state - the only window into what a
+      // potted unit is doing - and byte 24 echoes the last command it acted
+      // on, so a button press can be confirmed rather than assumed.
+      status:  dv.getUint8(23),
+      lastCmd: dv.getUint8(24),
       course: dv.getUint16(25, true) / 10,
       sats:   dv.getUint8(27),
       valid:  dv.getUint8(28) === 1,
@@ -312,11 +469,20 @@
       setStatus('Board sends packet v' + r.verMismatch + ', page expects v' + PKT_VER, false);
       return;
     }
-    if (seen[r.seq]) return;               // replayed duplicate after a reconnect
-    seen[r.seq] = true;
 
-    lastPkt = r; lastRxMs = Date.now();
+    // Route into this node's own store. The first tracker heard becomes the
+    // selected one so the page is useful without touching anything.
+    var store = nodeStore(r.nodeId);
+    if (activeNode === null) { activeNode = r.nodeId; syncActive(); }
+    var isActive = (r.nodeId === activeNode);
 
+    if (store.seen[r.seq]) return;         // replayed duplicate after a reconnect
+    store.seen[r.seq] = true;
+
+    store.lastPkt = r; store.lastRxMs = Date.now();
+    if (isActive) { lastPkt = r; lastRxMs = store.lastRxMs; }
+
+    var stats = store.stats, hist = store.hist;
     stats.rx++;
     if (stats.firstSeq === null) stats.firstSeq = r.seq;
     if (stats.lastSeq !== null){
@@ -339,11 +505,14 @@
       var p = { iso: r.epoch ? new Date(r.epoch*1000).toISOString().replace('.000','') : null,
                 lat: r.lat, lon: r.lon, alt: r.alt, dim: 3, sats: r.sats, hdop: r.hdop,
                 seq: r.seq, rssi: r.rssi, lsnr: r.snr, range: range };
-      if (track.length) trackDist += haversine(track[track.length-1], p);
-      track.push(p);
-      needDraw = true;
-      saveSoon();
+      if (store.track.length)
+        store.trackDist += haversine(store.track[store.track.length-1], p);
+      store.track.push(p);
+      if (isActive) { trackDist = store.trackDist; needDraw = true; saveSoon(); }
     }
+
+    renderNodeBar();
+    if (!isActive) return;                 // the rest only updates the view
 
     logLines.unshift('#' + String(r.seq).padStart(5) + '  ' +
       (r.valid ? r.lat.toFixed(6) + ',' + r.lon.toFixed(6) : 'no fix'.padEnd(20)) +
@@ -519,7 +688,9 @@
       $('pLon').textContent = r.valid ? r.lon.toFixed(6) + '°' : '—';
       $('pAlt').textContent = r.valid ? r.alt.toFixed(1) + ' m' : '—';
       $('pTime').textContent = r.epoch ? new Date(r.epoch*1000).toISOString().slice(11,19) : '—';
-      $('pSpd').textContent = r.valid ? (r.speed*2.23694).toFixed(1) + ' mph' : '—';
+      // Byte 23 carries the tracker's state now, not a speed it never sent.
+      $('pSpd').textContent = stateName(r.status) +
+        (stateFlags(r.status) ? '  ' + stateFlags(r.status) : '');
       $('pCrs').textContent = r.valid ? r.course.toFixed(0) + '°' : '—';
       $('pBrg').textContent = (r.valid && base) ? bearing(base, r).toFixed(0) + '°' : '—';
     }
@@ -834,6 +1005,24 @@
     needDraw = true;
     if (track.length) fitTrack();
   }
+
+  // Tracker selection and command buttons. Delegated, because the node cards
+  // are rebuilt on every packet.
+  $('nodeBar').addEventListener('click', function(ev){
+    var card = ev.target.closest ? ev.target.closest('.nodecard') : null;
+    if (card) selectNode(parseInt(card.getAttribute('data-node'), 10));
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.cmdbar .cmd'), function(b){
+    b.addEventListener('click', function(){
+      var iv = b.getAttribute('data-interval');
+      if (iv) sendCmd(CMD_INTERVAL, parseInt(iv, 10));
+      else    sendCmd(parseInt(b.getAttribute('data-cmd'), 10), 0);
+    });
+  });
+
+  // Ages on the cards go stale on their own, so refresh even with no traffic.
+  setInterval(renderNodeBar, 2000);
 
   $('fitBtn').addEventListener('click', fitTrack);
   $('followBtn').addEventListener('click', function(){ setFollow(!M.follow); });
