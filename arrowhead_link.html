@@ -118,11 +118,19 @@
     .cmdlabel { font-size:12px; opacity:.7; margin-left:6px; }
     .cmdnote  { font-size:12px; opacity:.8; margin-left:6px; }
   </style>
+  <style>
+    .buildtag { font-size:11px; opacity:.55; margin-left:10px;
+                font-family:ui-monospace,Menlo,Consolas,monospace; }
+  </style>
 </head>
 <body>
 
 <header>
   <h1>Arrowhead <span>· LoRa link</span></h1>
+  <!-- Bump this on every upload. The tracker cards and command bar stay
+       hidden until a packet arrives, so without a visible marker a fresh
+       page and a cached one look identical. -->
+  <span id="buildTag" class="buildtag">build 2026-10-30 · multi-tracker</span>
   <button id="connect" class="primary">Connect</button>
   <button id="reset">Reset stats</button>
   <div class="spacer"></div>
