@@ -151,7 +151,7 @@
   <!-- Bump this on every upload. The tracker cards and command bar stay
        hidden until a packet arrives, so without a visible marker a fresh
        page and a cached one look identical. -->
-  <span id="buildTag" class="buildtag">build 2026-10-31b · staleness scaled</span>
+  <span id="buildTag" class="buildtag">build 2026-10-31c · last known position</span>
   <button id="connect" class="primary">Connect</button>
   <button id="reset">Reset stats</button>
   <div class="spacer"></div>
@@ -357,7 +357,7 @@
   function nodeStore(id){
     if (!nodes[id]) nodes[id] = {
       id: id, track: [], seen: Object.create(null), trackDist: 0,
-      lastPkt: null, lastRxMs: 0, lastFix: null, lastSeqSeen: undefined,
+      lastPkt: null, lastRxMs: 0, lastFix: null, lastFixMs: 0, lastSeqSeen: undefined,
       stats: { rx:0, lost:0, best:null, worst:null, maxRange:0, firstSeq:null, lastSeq:null },
       hist: { rssi: [], snr: [], range: [] }
     };
@@ -405,7 +405,7 @@
     }
     el.textContent = last.lat.toFixed(6) + ', ' + last.lon.toFixed(6);
     $('copyPos').disabled = false;
-    var sec = n.lastRxMs ? Math.round((Date.now() - n.lastRxMs)/1000) : null;
+    var sec = n.lastFixMs ? Math.round((Date.now() - n.lastFixMs)/1000) : null;
     ageEl.textContent = (sec === null) ? '' : 'as of ' + fmtAge(sec);
 
     /*
@@ -593,7 +593,7 @@
       lat:    dv.getInt32(9,  true) / 1e7,
       lon:    dv.getInt32(13, true) / 1e7,
       alt:    dv.getInt32(17, true) / 100,
-      hdop:   dv.getUint16(21, true) / 100,
+      fixAge: dv.getUint16(21, true),   // seconds since the last real fix
       // Byte 23 used to be speed_cms, which the tracker never populated. It
       // now carries the tracker's own state - the only window into what a
       // potted unit is doing - and byte 24 echoes the last command it acted
@@ -663,11 +663,24 @@
     push(hist.snr,  r.snr);
     push(hist.range, range);
 
+    /*
+     * Even without a live fix the tracker reports where it last was and how
+     * old that is. Use it when we have nothing better - a phone that just
+     * connected would otherwise show no position at all until the tracker's
+     * next GPS cycle, which armed is up to five and a half minutes away.
+     */
+    if (!r.valid && !store.lastFix && r.lat && r.lon && r.fixAge !== 0xFFFF){
+      store.lastFix = { lat: r.lat, lon: r.lon, alt: r.alt, sats: 0,
+                        seq: r.seq, rssi: r.rssi, lsnr: r.snr, range: null };
+      store.lastFixMs = Date.now() - r.fixAge * 1000;
+    }
+
     if (r.valid){
       var p = { iso: r.epoch ? new Date(r.epoch*1000).toISOString().replace('.000','') : null,
-                lat: r.lat, lon: r.lon, alt: r.alt, dim: 3, sats: r.sats, hdop: r.hdop,
+                lat: r.lat, lon: r.lon, alt: r.alt, dim: 3, sats: r.sats, hdop: null,
                 seq: r.seq, rssi: r.rssi, lsnr: r.snr, range: range };
       store.lastFix = p;                   // where it is, whatever state it is in
+      store.lastFixMs = Date.now();
 
       // Only TRACKING positions belong on the track. An armed tracker sitting
       // in a stand would otherwise draw a cluster of points there and call it
