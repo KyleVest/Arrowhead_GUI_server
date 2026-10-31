@@ -151,7 +151,7 @@
   <!-- Bump this on every upload. The tracker cards and command bar stay
        hidden until a packet arrives, so without a visible marker a fresh
        page and a cached one look identical. -->
-  <span id="buildTag" class="buildtag">build 2026-10-31 · honest fix reporting</span>
+  <span id="buildTag" class="buildtag">build 2026-10-31b · staleness scaled</span>
   <button id="connect" class="primary">Connect</button>
   <button id="reset">Reset stats</button>
   <div class="spacer"></div>
@@ -407,7 +407,21 @@
     $('copyPos').disabled = false;
     var sec = n.lastRxMs ? Math.round((Date.now() - n.lastRxMs)/1000) : null;
     ageEl.textContent = (sec === null) ? '' : 'as of ' + fmtAge(sec);
-    el.classList.toggle('stale', sec !== null && sec > 120);
+
+    /*
+     * Stale means "older than this tracker should be", not a fixed two
+     * minutes. Armed, a position is refreshed every five and a half minutes
+     * by design, so a flat threshold would mark normal operation as a fault
+     * and train the hunter to ignore the warning. Tracking at 15 s, two
+     * minutes really is a problem.
+     */
+    var p = n.lastPkt, expect = 60;
+    if (p){
+      var st = p.status & STS_STATE;
+      if (st === 3)      expect = p.period || 300;   // tracking: its own rate
+      else if (st === 2) expect = 330;               // armed: 300 s plus the cycle
+    }
+    el.classList.toggle('stale', sec !== null && sec > expect * 2.5);
   }
 
   function copyPos(){
