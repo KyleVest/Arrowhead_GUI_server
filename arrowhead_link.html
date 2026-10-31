@@ -151,7 +151,7 @@
   <!-- Bump this on every upload. The tracker cards and command bar stay
        hidden until a packet arrives, so without a visible marker a fresh
        page and a cached one look identical. -->
-  <span id="buildTag" class="buildtag">build 2026-10-30e · position up top</span>
+  <span id="buildTag" class="buildtag">build 2026-10-31 · honest fix reporting</span>
   <button id="connect" class="primary">Connect</button>
   <button id="reset">Reset stats</button>
   <div class="spacer"></div>
@@ -357,7 +357,7 @@
   function nodeStore(id){
     if (!nodes[id]) nodes[id] = {
       id: id, track: [], seen: Object.create(null), trackDist: 0,
-      lastPkt: null, lastRxMs: 0,
+      lastPkt: null, lastRxMs: 0, lastFix: null, lastSeqSeen: undefined,
       stats: { rx:0, lost:0, best:null, worst:null, maxRange:0, firstSeq:null, lastSeq:null },
       hist: { rssi: [], snr: [], range: [] }
     };
@@ -395,8 +395,7 @@
     var el = $('posText'), lab = $('posLab'), ageEl = $('posAge');
     lab.textContent = (activeNode !== null) ? ('Tracker ' + activeNode + ' position')
                                             : 'Position';
-    var last = null;
-    if (n) for (var i = n.track.length - 1; i >= 0; i--) { last = n.track[i]; break; }
+    var last = n ? (n.lastFix || null) : null;
     if (!last){
       el.textContent = 'waiting for a fix…';
       el.classList.remove('stale');
@@ -609,8 +608,24 @@
     if (activeNode === null) { activeNode = r.nodeId; syncActive(); }
     var isActive = (r.nodeId === activeNode);
 
+    /*
+     * A tracker that reboots restarts its sequence at zero, and every one of
+     * those numbers is already in seen[] - so the page silently discards
+     * everything until the count climbs past where it was. It looks exactly
+     * like the tracker going quiet while the receiver logs packets happily.
+     *
+     * A big jump BACKWARDS is a restart, not a duplicate. Start the dedup
+     * over when that happens.
+     */
+    if (store.lastSeqSeen !== undefined &&
+        ((r.seq - store.lastSeqSeen) & 0xFFFF) > 0x8000 &&
+        ((store.lastSeqSeen - r.seq) & 0xFFFF) > 100) {
+      store.seen = Object.create(null);
+      store.stats.lastSeq = null;
+    }
     if (store.seen[r.seq]) return;         // replayed duplicate after a reconnect
     store.seen[r.seq] = true;
+    store.lastSeqSeen = r.seq;
 
     store.lastPkt = r; store.lastRxMs = Date.now();
     if (isActive) { lastPkt = r; lastRxMs = store.lastRxMs; }
@@ -638,10 +653,17 @@
       var p = { iso: r.epoch ? new Date(r.epoch*1000).toISOString().replace('.000','') : null,
                 lat: r.lat, lon: r.lon, alt: r.alt, dim: 3, sats: r.sats, hdop: r.hdop,
                 seq: r.seq, rssi: r.rssi, lsnr: r.snr, range: range };
-      if (store.track.length)
-        store.trackDist += haversine(store.track[store.track.length-1], p);
-      store.track.push(p);
-      if (isActive) { trackDist = store.trackDist; needDraw = true; saveSoon(); }
+      store.lastFix = p;                   // where it is, whatever state it is in
+
+      // Only TRACKING positions belong on the track. An armed tracker sitting
+      // in a stand would otherwise draw a cluster of points there and call it
+      // a path. The state comes from the status byte.
+      if ((r.status & STS_STATE) === 3){
+        if (store.track.length)
+          store.trackDist += haversine(store.track[store.track.length-1], p);
+        store.track.push(p);
+        if (isActive) { trackDist = store.trackDist; needDraw = true; saveSoon(); }
+      } else if (isActive) { needDraw = true; }
     }
 
     renderNodeBar();
