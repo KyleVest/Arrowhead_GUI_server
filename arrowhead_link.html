@@ -151,7 +151,7 @@
   <!-- Bump this on every upload. The tracker cards and command bar stay
        hidden until a packet arrives, so without a visible marker a fresh
        page and a cached one look identical. -->
-  <span id="buildTag" class="buildtag">build 2026-10-31c · last known position</span>
+  <span id="buildTag" class="buildtag">build 2026-11-01a · sync fix</span>
   <button id="connect" class="primary">Connect</button>
   <button id="reset">Reset stats</button>
   <div class="spacer"></div>
@@ -284,7 +284,8 @@
       </div>
       <div class="row" style="margin-top:14px">
         <table class="kv"><tr><td>Received</td><td class="mono" id="sRx">—</td></tr>
-          <tr><td>Lost</td><td class="mono" id="sLost">—</td></tr></table>
+          <tr><td>Lost</td><td class="mono" id="sLost">—</td></tr>
+          <tr><td>Dup dropped</td><td class="mono" id="sDrop">—</td></tr></table>
         <table class="kv"><tr><td>Best RSSI</td><td class="mono" id="sBest">—</td></tr>
           <tr><td>Worst RSSI</td><td class="mono" id="sWorst">—</td></tr></table>
         <table class="kv"><tr><td>Max range</td><td class="mono" id="sMaxR">—</td></tr>
@@ -358,7 +359,7 @@
     if (!nodes[id]) nodes[id] = {
       id: id, track: [], seen: Object.create(null), trackDist: 0,
       lastPkt: null, lastRxMs: 0, lastFix: null, lastFixMs: 0, lastSeqSeen: undefined,
-      stats: { rx:0, lost:0, best:null, worst:null, maxRange:0, firstSeq:null, lastSeq:null },
+      stats: { rx:0, lost:0, dropped:0, best:null, worst:null, maxRange:0, firstSeq:null, lastSeq:null },
       hist: { rssi: [], snr: [], range: [] }
     };
     return nodes[id];
@@ -630,14 +631,30 @@
      *
      * A big jump BACKWARDS is a restart, not a duplicate. Start the dedup
      * over when that happens.
+     *
+     * The old test also demanded the jump be bigger than 100. A tracker that
+     * is reflashed early in a session - which is most of them on the bench -
+     * restarts from a seq below that, so the reset never fired and the page
+     * dropped every packet from then on. A sequence only ever counts UP, so
+     * any backwards move at all is a restart. The 0x8000 half-space test
+     * still reads 65535 -> 0 as forward, which is a genuine rollover.
+     *
+     * The silence check is the backstop: if a node has said nothing for
+     * three minutes, whatever we think we know about its numbering is not
+     * worth defending against a packet that actually arrived.
      */
-    if (store.lastSeqSeen !== undefined &&
-        ((r.seq - store.lastSeqSeen) & 0xFFFF) > 0x8000 &&
-        ((store.lastSeqSeen - r.seq) & 0xFFFF) > 100) {
+    var backwards = store.lastSeqSeen !== undefined &&
+                    ((r.seq - store.lastSeqSeen) & 0xFFFF) > 0x8000;
+    var longSilence = store.lastRxMs && (Date.now() - store.lastRxMs) > 180000;
+    if (backwards || longSilence) {
       store.seen = Object.create(null);
       store.stats.lastSeq = null;
     }
-    if (store.seen[r.seq]) return;         // replayed duplicate after a reconnect
+    if (store.seen[r.seq]) {               // replayed duplicate after a reconnect
+      store.stats.dropped++;
+      if (isActive) render();
+      return;
+    }
     store.seen[r.seq] = true;
     store.lastSeqSeen = r.seq;
 
@@ -735,8 +752,20 @@
     data.addEventListener('characteristicvaluechanged', function(ev){ onRecord(ev.target.value); });
     await data.startNotifications();
 
-    // Tell the board where we left off so it replays only the gap. 0xFFFF = send everything.
-    var resume = stats && stats.lastSeq !== null ? stats.lastSeq : 0xFFFF;
+    /*
+     * Always ask for the whole buffer.
+     *
+     * The resume number is a single sequence, but sequences are per tracker
+     * and the base's ring holds all of them interleaved. Its search walks
+     * forward to the first record newer than that one number and drops
+     * everything before it - for every tracker, not just the one the number
+     * came from. With one tracker it worked; with three it would silently
+     * eat the other two.
+     *
+     * Sending everything is correct whatever the tracker count, and the
+     * dedup above throws away what we already have.
+     */
+    var resume = 0xFFFF;
     var cmd = new Uint8Array(2);
     cmd[0] = resume & 0xFF; cmd[1] = (resume >> 8) & 0xFF;
     await chrCmd.writeValue(cmd);
@@ -830,9 +859,15 @@
       var pts = JSON.parse(raw);
       if (pts && pts.length){
         setTrack(pts);
-        pts.forEach(function(p){ if (p.seq !== undefined) seen[p.seq] = true; });
-        var last = pts[pts.length-1];
-        if (last && last.seq !== undefined) stats.lastSeq = last.seq;
+        /*
+         * The saved track used to seed seen[] and stats.lastSeq. Both were
+         * wrong. A track on disk says where the tracker HAS been, not what
+         * the base station still holds in its buffer - so seeding seen[]
+         * made the page discard live packets whose numbers happened to
+         * match yesterday's, and seeding lastSeq made it tell the base
+         * "I already have everything up to N" and skip the real backlog.
+         * Restore the drawing, claim nothing about the numbering.
+         */
         setStatus('Restored ' + pts.length + ' saved points', false);
       }
     } catch (e){}
@@ -882,6 +917,9 @@
 
     $('sRx').textContent   = stats.rx;
     $('sLost').textContent = stats.lost;
+    // A climbing number here with nothing updating on screen is the signature
+    // of the dedup eating live packets. Silent before; visible now.
+    $('sDrop').textContent = stats.dropped || 0;
     $('sBest').textContent  = stats.best  === null ? '—' : stats.best + ' dBm';
     $('sWorst').textContent = stats.worst === null ? '—' : stats.worst + ' dBm';
     $('sMaxR').textContent  = stats.maxRange ? fmtDistLong(stats.maxRange) : '—';
