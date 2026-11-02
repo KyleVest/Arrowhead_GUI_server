@@ -151,7 +151,7 @@
   <!-- Bump this on every upload. The tracker cards and command bar stay
        hidden until a packet arrives, so without a visible marker a fresh
        page and a cached one look identical. -->
-  <span id="buildTag" class="buildtag">build 2026-11-02b · rover marker</span>
+  <span id="buildTag" class="buildtag">build 2026-11-02c · burst fix</span>
   <button id="connect" class="primary">Connect</button>
   <button id="reset">Reset stats</button>
   <div class="spacer"></div>
@@ -471,6 +471,7 @@
   var hist = { rssi: [], snr: [], range: [] };
   var logLines = [];
   var needDraw = true;
+  var needRender = false;                // set by onRecord, drained by the timer
   var wakeLock = null;
 
   /* ================= tracker bar and commands ================= */
@@ -664,7 +665,7 @@
     }
     if (store.seen[r.seq]) {               // replayed duplicate after a reconnect
       store.stats.dropped++;
-      if (isActive) render();
+      needRender = true;                   // NOT render() - see the note below
       return;
     }
     store.seen[r.seq] = true;
@@ -722,10 +723,24 @@
       } else if (isActive) { needDraw = true; }
     }
 
-    renderNodeBar();
+    /*
+     * Mark the view dirty; do NOT redraw it here.
+     *
+     * Records do not arrive one at a time. A reconnect replays up to 300 of
+     * them back to back, and rendering synchronously inside that loop stalls
+     * the JavaScript thread for seconds. On iOS a stalled thread stops
+     * servicing Bluetooth, the link hits its supervision timeout and drops,
+     * the page reconnects, the base replays the backlog again, and it stalls
+     * again - a disconnect/reconnect storm that eventually settles only
+     * because the replay finally gets through. That is self-inflicted, and
+     * it got worse with four trackers and a 15-second interval filling the
+     * buffer faster.
+     *
+     * The flag is drained by the 250 ms render timer, so a burst of 300
+     * records costs one redraw instead of 300.
+     */
+    needRender = true;
     if (!isActive) return;
-    syncIntervalPicker();
-    renderPos();                 // the rest only updates the view
 
     logLines.unshift('#' + String(r.seq).padStart(5) + '  ' +
       (r.valid ? r.lat.toFixed(6) + ',' + r.lon.toFixed(6) : 'no fix'.padEnd(20)) +
@@ -1501,7 +1516,17 @@
   restore();
   paintLegend();
   setFollow(true);
-  setInterval(render, 250);
+  // One drain for the whole burst. renderNodeBar/syncIntervalPicker/renderPos
+  // used to run per packet inside onRecord; they run here instead.
+  setInterval(function(){
+    if (needRender){
+      needRender = false;
+      renderNodeBar();
+      syncIntervalPicker();
+      renderPos();
+    }
+    render();
+  }, 250);
   (function loop(){
     if (needDraw){ needDraw = false; drawMap(); }
     requestAnimationFrame(loop);
