@@ -151,7 +151,7 @@
   <!-- Bump this on every upload. The tracker cards and command bar stay
        hidden until a packet arrives, so without a visible marker a fresh
        page and a cached one look identical. -->
-  <span id="buildTag" class="buildtag">build 2026-11-02a · offline</span>
+  <span id="buildTag" class="buildtag">build 2026-11-02b · rover marker</span>
   <button id="connect" class="primary">Connect</button>
   <button id="reset">Reset stats</button>
   <div class="spacer"></div>
@@ -364,6 +364,17 @@
       hist: { rssi: [], snr: [], range: [] }
     };
     return nodes[id];
+  }
+
+  /*
+   * The selected tracker's newest valid position. Note this is NOT aliased
+   * into a global by syncActive() the way track and stats are - it has to be
+   * read from the store, which is exactly the trap the map fell into.
+   */
+  function activeFix(){
+    if (activeNode === null) return null;
+    var n = nodes[activeNode];
+    return n ? n.lastFix : null;
   }
 
   function syncActive(){
@@ -1023,9 +1034,22 @@
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,cw,ch);
 
+    /*
+     * Centre on the tracker's CURRENT position, not just on the track.
+     *
+     * The track deliberately only collects TRACKING points - an armed tracker
+     * sitting in a stand would otherwise draw a tight cluster and call it a
+     * path. But that left an armed tracker with an empty track, so the map
+     * fell straight through to the base station and showed nothing else,
+     * while the card above it happily displayed the coordinates. The map has
+     * one job and it was not doing it.
+     */
+    var fix = activeFix();
     if (M.follow && track.length){
       M.lat = track[track.length-1].lat; M.lon = track[track.length-1].lon;
-    } else if (M.follow && !track.length && base){
+    } else if (M.follow && fix){
+      M.lat = fix.lat; M.lon = fix.lon;
+    } else if (M.follow && base){
       M.lat = base.lat; M.lon = base.lon;
     }
     var haveCenter = M.lat !== null;
@@ -1053,6 +1077,7 @@
     }
 
     drawTrack(ctx, z, ox, oy);
+    drawRover(ctx, z, ox, oy);
     drawBase(ctx, z, ox, oy);
     drawScale(ctx, cw, ch, z);
     $('attrib').textContent = useTiles ? src.attr
@@ -1115,13 +1140,39 @@
     ctx.fillStyle = QC[b.q]; ctx.fill(); ctx.stroke();
   }
 
+  /*
+   * Where the selected tracker is right now, whatever state it is in.
+   *
+   * Only drawn when the track is empty, because a TRACKING track already
+   * marks its live end - this is what fills the gap for CHARGING, IDLE and
+   * ARMED, which is most of the hunt.
+   */
+  function drawRover(ctx, z, ox, oy){
+    if (track.length) return;
+    var p = activeFix();
+    if (!p) return;
+    var x = lon2wx(p.lon,z)-ox, y = lat2wy(p.lat,z)-oy;
+
+    ctx.beginPath(); ctx.arc(x, y, 10, 0, 6.284);
+    ctx.fillStyle = 'rgba(63,185,80,.25)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, 6, 0, 6.284);
+    ctx.fillStyle = '#3fb950'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
+
+    // Shadowed text, because a thin label vanishes over satellite imagery.
+    ctx.font = '600 11px -apple-system,system-ui,sans-serif';
+    var label = 'Tracker ' + activeNode;
+    ctx.fillStyle = 'rgba(0,0,0,.75)'; ctx.fillText(label, x+12, y+4);
+    ctx.fillStyle = '#e6edf3';         ctx.fillText(label, x+11, y+3);
+  }
+
   // Base marker plus a dashed line to the rover — the range you are testing, drawn.
   function drawBase(ctx, z, ox, oy){
     if (!base) return;
     var bx = lon2wx(base.lon,z)-ox, by = lat2wy(base.lat,z)-oy;
 
-    if (track.length){
-      var last = track[track.length-1];
+    var last = track.length ? track[track.length-1] : activeFix();
+    if (last){
       var lx = lon2wx(last.lon,z)-ox, ly = lat2wy(last.lat,z)-oy;
       ctx.save();
       ctx.setLineDash([6,5]); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(88,166,255,.75)';
@@ -1224,6 +1275,8 @@
   }
   function fitTrack(){
     var pts = track.slice();
+    var fx = activeFix();
+    if (!pts.length && fx) pts.push(fx);      // armed tracker: one point is the fit
     if (base) pts.push(base);                 // keep base and rover both in view
     if (!pts.length) return;
     var m = { la0: 90, la1: -90, lo0: 180, lo1: -180 };
