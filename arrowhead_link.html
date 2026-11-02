@@ -151,7 +151,7 @@
   <!-- Bump this on every upload. The tracker cards and command bar stay
        hidden until a packet arrives, so without a visible marker a fresh
        page and a cached one look identical. -->
-  <span id="buildTag" class="buildtag">build 2026-11-02d · live marker</span>
+  <span id="buildTag" class="buildtag">build 2026-11-02e · track alias</span>
   <button id="connect" class="primary">Connect</button>
   <button id="reset">Reset stats</button>
   <div class="spacer"></div>
@@ -635,6 +635,11 @@
     var store = nodeStore(r.nodeId);
     if (activeNode === null) { activeNode = r.nodeId; syncActive(); }
     var isActive = (r.nodeId === activeNode);
+
+    // Belt and braces. If the global aliases ever drift from the store the
+    // map draws stale data and nothing says so, which cost a whole evening.
+    // Re-pointing them is free; detecting it any other way is not.
+    if (isActive && track !== store.track) syncActive();
 
     /*
      * A tracker that reboots restarts its sequence at zero, and every one of
@@ -1321,9 +1326,22 @@
     setFollow(false);
   }
 
+  /*
+   * Replace the CONTENTS, never the array.
+   *
+   * `track` is an alias for the selected node's own array, handed over by
+   * syncActive(). Assigning `track = pts` silently pointed the global at a
+   * different array, so every later push from onRecord went into the node's
+   * store while the map kept drawing the orphan - a live tracker with a
+   * growing track and no path on screen, which is precisely the bug. The
+   * marker kept working because it reads the store directly.
+   */
   function setTrack(pts){
-    track = pts; trackDist = 0;
-    for (var i = 1; i < track.length; i++) trackDist += haversine(track[i-1], track[i]);
+    track.length = 0;
+    for (var i = 0; i < pts.length; i++) track.push(pts[i]);
+    trackDist = 0;
+    for (i = 1; i < track.length; i++) trackDist += haversine(track[i-1], track[i]);
+    if (activeNode !== null) nodeStore(activeNode).trackDist = trackDist;
     needDraw = true;
     if (track.length) fitTrack();
   }
@@ -1380,7 +1398,15 @@
   }
   $('clearTrack').addEventListener('click', function(){
     if (track.length && !confirm('Discard ' + track.length + ' recorded points?')) return;
-    track = []; trackDist = 0; seen = Object.create(null); logLines = [];
+    track.length = 0;            // same reason as setTrack: keep the alias
+    trackDist = 0;
+    if (activeNode !== null){
+      var n = nodeStore(activeNode);
+      n.trackDist = 0;
+      n.seen = Object.create(null);
+      seen = n.seen;
+    }
+    logLines = [];
     resetStats();
     try { localStorage.removeItem('arrowhead.track'); } catch (e){}
     needDraw = true;
