@@ -285,7 +285,8 @@
       <div class="row" style="margin-top:14px">
         <table class="kv"><tr><td>Received</td><td class="mono" id="sRx">—</td></tr>
           <tr><td>Lost</td><td class="mono" id="sLost">—</td></tr>
-          <tr><td>Dup dropped</td><td class="mono" id="sDrop">—</td></tr></table>
+          <tr><td>Dup dropped</td><td class="mono" id="sDrop">—</td></tr>
+          <tr><td>Offline</td><td class="mono" id="sOffline">checking…</td></tr></table>
         <table class="kv"><tr><td>Best RSSI</td><td class="mono" id="sBest">—</td></tr>
           <tr><td>Worst RSSI</td><td class="mono" id="sWorst">—</td></tr></table>
         <table class="kv"><tr><td>Max range</td><td class="mono" id="sMaxR">—</td></tr>
@@ -1453,6 +1454,27 @@
     requestAnimationFrame(loop);
   })();
   render();
+
+  /* ================= offline cache =================
+     Registers sw.js, which caches the page so it still opens with no signal.
+     The status line is the point: "it probably cached" is not something to
+     find out at the trailhead, so the page says plainly whether it is armed. */
+  (function(){
+    function set(t){ try { var e = $('sOffline'); if (e) e.textContent = t; } catch (err){} }
+    if (!('serviceWorker' in navigator)) { set('not supported by this browser'); return; }
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+      set('needs https'); return;
+    }
+    navigator.serviceWorker.register('sw.js').then(function(){
+      set(navigator.serviceWorker.controller ? 'ready - opens without signal'
+                                             : 'installed - reload once to arm');
+      navigator.serviceWorker.addEventListener('controllerchange', function(){
+        set('ready - opens without signal');
+      });
+    }).catch(function(e){
+      set('unavailable (' + (e && e.name ? e.name : 'failed') + ')');
+    });
+  })();
 
   // Debug hook: __ah.feed(new DataView(new Uint8Array([...]).buffer))
   window.__ah = { feed: onRecord, track: function(){ return track; }, stats: function(){ return stats; } };
