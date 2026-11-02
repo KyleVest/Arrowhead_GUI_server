@@ -151,7 +151,7 @@
   <!-- Bump this on every upload. The tracker cards and command bar stay
        hidden until a packet arrives, so without a visible marker a fresh
        page and a cached one look identical. -->
-  <span id="buildTag" class="buildtag">build 2026-11-02c · burst fix</span>
+  <span id="buildTag" class="buildtag">build 2026-11-02d · live marker</span>
   <button id="connect" class="primary">Connect</button>
   <button id="reset">Reset stats</button>
   <div class="spacer"></div>
@@ -1059,11 +1059,21 @@
      * while the card above it happily displayed the coordinates. The map has
      * one job and it was not doing it.
      */
+    /*
+     * The live fix wins, always.
+     *
+     * It is the freshest thing we have by construction: every valid fix sets
+     * lastFix, and only TRACKING fixes also get pushed onto the track. The
+     * previous version checked the track FIRST, so a track restored from
+     * localStorage - yesterday's session, still sitting in the browser -
+     * pinned the map to an old position and the live marker never showed,
+     * while the coordinate card above it updated perfectly.
+     */
     var fix = activeFix();
-    if (M.follow && track.length){
-      M.lat = track[track.length-1].lat; M.lon = track[track.length-1].lon;
-    } else if (M.follow && fix){
+    if (M.follow && fix){
       M.lat = fix.lat; M.lon = fix.lon;
+    } else if (M.follow && track.length){
+      M.lat = track[track.length-1].lat; M.lon = track[track.length-1].lon;
     } else if (M.follow && base){
       M.lat = base.lat; M.lon = base.lon;
     }
@@ -1158,12 +1168,13 @@
   /*
    * Where the selected tracker is right now, whatever state it is in.
    *
-   * Only drawn when the track is empty, because a TRACKING track already
-   * marks its live end - this is what fills the gap for CHARGING, IDLE and
-   * ARMED, which is most of the hunt.
+   * Drawn unconditionally. It used to bail out when the track was non-empty,
+   * on the reasoning that a TRACKING track already marks its live end - but
+   * a stale track restored from localStorage was enough to suppress the live
+   * marker entirely. When TRACKING is genuinely running the two sit on the
+   * same coordinates anyway, so drawing both costs nothing.
    */
   function drawRover(ctx, z, ox, oy){
-    if (track.length) return;
     var p = activeFix();
     if (!p) return;
     var x = lon2wx(p.lon,z)-ox, y = lat2wy(p.lat,z)-oy;
